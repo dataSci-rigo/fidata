@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+file_clean.csv
+__pycache__
+*.png
+*.csv
+*.xlsx
+*.zip
+*.json
+*.jsx
