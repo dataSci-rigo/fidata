@@ -2,7 +2,7 @@
 """viewer_app.py — GUI portfolio viewer for fiData"""
 import tkinter as tk
 from tkinter import ttk, messagebox
-import json, os, sys
+import os, sys
 import pandas as pd
 import numpy as np
 from datetime import date, timedelta
@@ -21,6 +21,8 @@ except ImportError:
 DATA_DIR  = os.path.dirname(os.path.abspath(__file__))
 APP_DATA  = os.path.join(DATA_DIR, 'app_data')
 HIST_FILE = os.path.join(DATA_DIR, 'historical.csv')
+
+from app_data_io import load_json, fmt
 
 # ── Theme ──────────────────────────────────────────────────────────────────────
 BG      = '#1e1e2e'
@@ -71,35 +73,6 @@ COL_FMTS = {
     'currentPriceTarget': '$',
     'MarketCap':          '$auto',
 }
-
-
-def load_json(name):
-    with open(os.path.join(APP_DATA, name)) as f:
-        return json.load(f)
-
-
-def fmt(val, kind='str'):
-    if val is None:
-        return '—'
-    try:
-        v = float(val)
-        if v != v:  # NaN check
-            return '—'
-        if kind == '$':
-            return f'${v:,.2f}'
-        if kind == '$auto':
-            if abs(v) >= 1e12: return f'${v/1e12:.2f}T'
-            if abs(v) >= 1e9:  return f'${v/1e9:.2f}B'
-            if abs(v) >= 1e6:  return f'${v/1e6:.1f}M'
-            if abs(v) >= 1e3:  return f'${v/1e3:.1f}K'
-            return f'${v:.2f}'
-        if kind == '%':    return f'{v:.2f}%'
-        if kind == 'pct':  return f'{v*100:.1f}%'
-        if kind == 'f2':   return f'{v:.2f}'
-        if kind == 'int':  return f'{int(v):,}'
-    except (TypeError, ValueError):
-        pass
-    return str(val)
 
 
 class App(tk.Tk):

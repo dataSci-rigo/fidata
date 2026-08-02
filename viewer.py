@@ -4,7 +4,6 @@ Portfolio Viewer — reads exported JSON from mystocks.ipynb (app_data/)
 Run:  python viewer.py
 """
 
-import json
 import os
 import sys
 
@@ -16,45 +15,13 @@ from rich import box
 from prompt_toolkit import prompt
 from prompt_toolkit.formatted_text import HTML
 
+from app_data_io import load, fmt, pct_color
+
 # ── Config ────────────────────────────────────────────────────────────────────
 DATA_DIR = os.path.dirname(os.path.abspath(__file__))
 APP_DATA = os.path.join(DATA_DIR, "app_data")
 
 console = Console()
-
-
-# ── Data helpers ──────────────────────────────────────────────────────────────
-
-def load(filename):
-    path = os.path.join(APP_DATA, filename)
-    if not os.path.exists(path):
-        return None
-    with open(path) as f:
-        return json.load(f)
-
-
-def fmt(val, kind="str"):
-    if val is None or val != val:   # None or NaN
-        return "—"
-    if kind == "$":
-        return f"${val:,.2f}"
-    if kind == "$big":
-        return f"${val:,.0f}"
-    if kind == "%":
-        return f"{val:.2f}%"
-    if kind == "x":
-        return f"{val:.2f}x"
-    if kind == "int":
-        return str(int(val))
-    return str(val)
-
-
-def pct_color(val):
-    """Return a rich markup string for a % value."""
-    if val is None or val != val:
-        return "—"
-    color = "green" if val >= 0 else "red"
-    return f"[{color}]{val:.2f}%[/{color}]"
 
 
 def go_back():
