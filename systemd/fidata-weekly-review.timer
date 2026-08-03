@@ -1,0 +1,10 @@
+[Unit]
+Description=Run fiData weekly deep review Sunday afternoons
+
+[Timer]
+OnCalendar=Sun 14:00:00
+Persistent=true
+Unit=fidata-weekly-review.service
+
+[Install]
+WantedBy=timers.target

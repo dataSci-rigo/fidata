@@ -1,0 +1,10 @@
+[Unit]
+Description=Run fiData daily Claude summary shortly after the last pipeline run
+
+[Timer]
+OnCalendar=*-*-* 19:15:00
+Persistent=true
+Unit=fidata-daily-review.service
+
+[Install]
+WantedBy=timers.target

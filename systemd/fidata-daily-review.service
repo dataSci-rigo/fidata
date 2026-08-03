@@ -1,0 +1,8 @@
+[Unit]
+Description=fiData daily Claude summary (Telegram)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/apps/fiData
+ExecStart=%h/apps/fiData/venv/bin/python run_daily_review.py
