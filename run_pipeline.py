@@ -10,6 +10,13 @@ unknown_trades.csv instead of blocking on a human.
 import os
 import sys
 
+# Must happen before any matplotlib.pyplot import (directly or via
+# plotting.py) — headless run, no display available. plotting.py
+# deliberately doesn't set this itself so the notebook's own Jupyter-provided
+# interactive backend isn't clobbered when it imports the same module.
+import matplotlib
+matplotlib.use('Agg')
+
 import pandas as pd
 from dotenv import dotenv_values
 
@@ -18,10 +25,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from parsers import load_positions
 from parsers.transactions import load_realized_lots, load_transactions
 from analytics import (
-    CUTOFF, DEFAULT_BUY, collect_snapshots, compute_cost_basis, export_app_data,
-    infer_missing_trades, load_fallback_cost_basis, merge_accounts,
+    CUTOFF, DEFAULT_BUY, collect_snapshots, compute_cost_basis, correlation_matrix,
+    efficient_frontier, export_app_data, high_correlation_pairs, infer_missing_trades,
+    load_fallback_cost_basis, merge_accounts, mpt_metrics,
 )
-from enrich import earnings_and_recommendations, refresh_historical
+from enrich import (
+    classify_sectors, earnings_and_recommendations, refresh_historical,
+    risk_free_rate, symbol_metrics,
+)
+from plotting import save_correlation_heatmap_plot, save_efficient_frontier_plot, save_mpt_summary
 from alerts import detect_alerts, save_snapshot
 from telegram_alert import send_telegram
 
@@ -34,10 +46,15 @@ DATA_STATE_DIR = os.path.join(DATA_DIR, 'data')
 
 HIST_FILE = os.path.join(DATA_DIR, 'historical.csv')
 EARN_FILE = os.path.join(DATA_DIR, 'earnings.csv')
+SECTOR_CSV = os.path.join(DATA_DIR, 'sectors.csv')
 UNKNOWN_FILE = os.path.join(DATA_DIR, 'unknown_trades.csv')
 UPGRADES_FILE = os.path.join(DATA_DIR, 'upgrades.csv')
 LAST_SNAPSHOT_FILE = os.path.join(DATA_STATE_DIR, 'last_run_snapshot.csv')
 ALERTED_EARNINGS_FILE = os.path.join(DATA_STATE_DIR, 'alerted_earnings.json')
+EFFICIENT_FRONTIER_PNG = os.path.join(DATA_DIR, 'efficient_frontier.png')
+CORRELATION_HEATMAP_PNG = os.path.join(DATA_DIR, 'correlation_heatmap.png')
+MPT_SUMMARY_FILE = os.path.join(DATA_STATE_DIR, 'mpt_summary.json')
+CORR_TOP_N = 25
 
 EXCLUDE_FILES = {
     'earnings.csv', 'historical.csv', 'portfolio.csv', 'sectors.csv', 'file_clean.csv',
@@ -57,6 +74,21 @@ def run() -> dict:
     combined = compute_cost_basis(combined, tx_df, fid_cost, CUTOFF, DEFAULT_BUY)
 
     hist_df = refresh_historical(combined.index, HIST_FILE)
+    rf_annual = risk_free_rate()
+
+    metrics_df = symbol_metrics(combined, hist_df, rf_annual)
+    live_prices = metrics_df['Current_Price'].dropna()
+    combined.loc[live_prices.index, 'Current_Price'] = live_prices
+    combined.loc[combined.index != 'cash', 'Market_Value'] = (
+        combined.loc[combined.index != 'cash', 'Quantity']
+        * combined.loc[combined.index != 'cash', 'Current_Price'])
+    for col in metrics_df.columns:
+        if col != 'Current_Price':
+            combined[col] = metrics_df[col]
+
+    sector_df = classify_sectors(combined, SECTOR_CSV)
+    for col in ('Quote_Type', 'Sector', 'MarketCap', 'Cap_Tier', 'Vol_Tier'):
+        combined.loc[combined.index != 'cash', col] = sector_df[col]
 
     snap_map = collect_snapshots(PAST_DIR, ACCOUNTS_DIR)
     inferred = infer_missing_trades(snap_map, tx_df, hist_df, UNKNOWN_FILE)
@@ -70,6 +102,18 @@ def run() -> dict:
 
     export_app_data(APP_DATA, accounts, combined, earn_file=EARN_FILE, upgrades_file=UPGRADES_FILE)
 
+    # MPT / efficient frontier / correlation — feeds the /positions panel page.
+    # Computed here (not just in the notebook) so that page is refreshed 3x/day
+    # like everything else, with no manual notebook run required.
+    metrics = mpt_metrics(combined, hist_df, rf_annual)
+    if len(metrics['symbols']) >= 2:
+        ef = efficient_frontier(metrics)
+        corr, top_syms = correlation_matrix(combined, metrics['rets'], top_n=CORR_TOP_N)
+        pairs = high_correlation_pairs(corr, top_syms)
+        save_efficient_frontier_plot(metrics, ef, EFFICIENT_FRONTIER_PNG)
+        save_correlation_heatmap_plot(corr, len(top_syms), CORRELATION_HEATMAP_PNG)
+        save_mpt_summary(metrics, ef, pairs, MPT_SUMMARY_FILE)
+
     messages = detect_alerts(combined, LAST_SNAPSHOT_FILE, earn_cache, ALERTED_EARNINGS_FILE)
     for msg in messages:
         send_telegram(msg)
@@ -77,7 +121,8 @@ def run() -> dict:
     save_snapshot(combined, LAST_SNAPSHOT_FILE)
 
     return {'combined': combined, 'hist_df': hist_df, 'tx_df': tx_df, 'sold_df': sold_df,
-            'earn_cache': earn_cache, 'alerts_sent': messages}
+            'earn_cache': earn_cache, 'alerts_sent': messages,
+            'metrics': metrics, 'rf_annual': rf_annual}
 
 
 if __name__ == '__main__':

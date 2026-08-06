@@ -4,5 +4,5 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=%h/apps/fiData
-ExecStart=%h/apps/fiData/venv/bin/python run_pipeline.py
+WorkingDirectory=%h/apps/fidata
+ExecStart=%h/apps/fidata/venv/bin/python run_pipeline.py

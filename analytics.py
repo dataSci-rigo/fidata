@@ -381,6 +381,33 @@ def efficient_frontier(metrics: dict, n_mc: int = 3000, seed: int = 42) -> dict:
     }
 
 
+# ── Cell 17: correlation matrix ──────────────────────────────────────────────────
+
+def correlation_matrix(combined: pd.DataFrame, rets: pd.DataFrame,
+                        top_n: int = 25) -> tuple[pd.DataFrame, list[str]]:
+    """Correlation matrix for the top `top_n` MPT-universe positions by market
+    value. `rets` is the daily-returns DataFrame from mpt_metrics()['rets'] —
+    pass the same one so the correlation windows line up with the MPT run.
+    Pure numeric, no plotting — mirrors mpt_metrics/efficient_frontier."""
+    mpt_syms = rets.columns.tolist()
+    n = min(top_n, len(mpt_syms))
+    top_syms = combined.loc[mpt_syms, 'Market_Value'].nlargest(n).index.tolist()
+    corr = rets[top_syms].corr().round(2)
+    return corr, top_syms
+
+
+def high_correlation_pairs(corr: pd.DataFrame, top_syms: list[str],
+                            threshold: float = 0.85) -> list[tuple[str, str, float]]:
+    """Symbol pairs with |correlation| above `threshold`, most-correlated first."""
+    pairs = [
+        (s1, s2, corr.loc[s1, s2])
+        for i, s1 in enumerate(top_syms)
+        for s2 in top_syms[i + 1:]
+        if abs(corr.loc[s1, s2]) > threshold
+    ]
+    return sorted(pairs, key=lambda x: abs(x[2]), reverse=True)
+
+
 # ── Cell 12: app_data JSON export ────────────────────────────────────────────────
 
 def _df_to_records(df: pd.DataFrame) -> list[dict]:

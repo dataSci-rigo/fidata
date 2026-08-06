@@ -14,19 +14,14 @@ from dotenv import dotenv_values
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from run_pipeline import DATA_DIR, DATA_STATE_DIR, run as run_pipeline
-from analytics import mpt_metrics
-from enrich import classify_sectors
 from ai_review import weekly_deep_review
 from telegram_alert import send_telegram
 
-SECTOR_CSV = os.path.join(DATA_DIR, 'sectors.csv')
 PANEL_URL = os.getenv('FIDATA_PANEL_URL', 'http://localhost:9000/fidata')
 
 
-def _sector_summary_by_gics(combined, sector_df) -> list[dict]:
-    eq = combined[combined.index != 'cash'].copy()
-    for col in ('Sector',):
-        eq.loc[:, col] = sector_df[col]
+def _sector_summary_by_gics(combined) -> list[dict]:
+    eq = combined[combined.index != 'cash']
     g = eq.groupby('Sector')['Market_Value'].sum().sort_values(ascending=False)
     return [{'Sector': sym, 'Total_Market_Value': f'${v:,.0f}'} for sym, v in g.items()]
 
@@ -36,19 +31,12 @@ if __name__ == '__main__':
     for k, v in _env.items():
         os.environ.setdefault(k, v)
 
+    # run_pipeline()'s run() already computes Sector/Cap_Tier/Vol_Tier and MPT
+    # metrics as part of its normal flow — reuse them rather than refetching.
     result = run_pipeline()
-    combined, hist_df, sold_df = result['combined'], result['hist_df'], result['sold_df']
+    combined, sold_df, metrics = result['combined'], result['sold_df'], result['metrics']
 
-    sector_df = classify_sectors(combined, SECTOR_CSV)
-    sector_data = {'by_gics': _sector_summary_by_gics(combined, sector_df)}
-
-    rf_annual = 0.043
-    try:
-        import enrich
-        rf_annual = enrich.risk_free_rate()
-    except Exception:
-        pass
-    metrics = mpt_metrics(combined, hist_df, rf_annual)
+    sector_data = {'by_gics': _sector_summary_by_gics(combined)}
 
     sections = weekly_deep_review(combined, sector_data, metrics, sold_df)
 
