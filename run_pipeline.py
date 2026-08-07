@@ -7,6 +7,7 @@ that's what bug fix #3 (removing the notebook's input() prompt) made
 possible: infer_missing_trades() always logs unresolved trades to
 unknown_trades.csv instead of blocking on a human.
 """
+import json
 import os
 import sys
 
@@ -25,7 +26,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from parsers import load_positions
 from parsers.transactions import load_realized_lots, load_transactions
 from analytics import (
-    CUTOFF, DEFAULT_BUY, collect_snapshots, compute_cost_basis, correlation_matrix,
+    CUTOFF, DEFAULT_BUY, capital_performance, closed_positions_summary,
+    collect_snapshots, compute_cost_basis, correlation_matrix,
     efficient_frontier, export_app_data, high_correlation_pairs, infer_missing_trades,
     load_fallback_cost_basis, merge_accounts, mpt_metrics,
 )
@@ -54,6 +56,7 @@ ALERTED_EARNINGS_FILE = os.path.join(DATA_STATE_DIR, 'alerted_earnings.json')
 EFFICIENT_FRONTIER_PNG = os.path.join(DATA_DIR, 'efficient_frontier.png')
 CORRELATION_HEATMAP_PNG = os.path.join(DATA_DIR, 'correlation_heatmap.png')
 MPT_SUMMARY_FILE = os.path.join(DATA_STATE_DIR, 'mpt_summary.json')
+PORTFOLIO_EXTRAS_FILE = os.path.join(DATA_STATE_DIR, 'portfolio_extras.json')
 CORR_TOP_N = 25
 
 EXCLUDE_FILES = {
@@ -100,12 +103,24 @@ def run() -> dict:
     for col in recs_df.columns:
         combined[col] = recs_df[col]
 
+    # MPT metrics computed here (before export_app_data) so Beta/Alpha_pct —
+    # like Sector/Cap_Tier/Vol_Tier before it — actually make it into
+    # combined.json instead of only existing inside this function's return
+    # value. The notebook's cell 15 already did this merge; run_pipeline.py
+    # previously didn't, so every headless run silently dropped these columns.
+    metrics = mpt_metrics(combined, hist_df, rf_annual)
+    ef = None
+    if len(metrics['symbols']) >= 2 and 'beta_alpha' in metrics:
+        ba_df = metrics['beta_alpha']
+        combined.loc[ba_df.index, 'Beta'] = ba_df['Beta']
+        combined.loc[ba_df.index, 'Alpha_pct'] = ba_df['Alpha_pct']
+
     export_app_data(APP_DATA, accounts, combined, earn_file=EARN_FILE, upgrades_file=UPGRADES_FILE)
 
-    # MPT / efficient frontier / correlation — feeds the /positions panel page.
-    # Computed here (not just in the notebook) so that page is refreshed 3x/day
-    # like everything else, with no manual notebook run required.
-    metrics = mpt_metrics(combined, hist_df, rf_annual)
+    # Efficient frontier / correlation / "extras" — feeds the /positions panel
+    # page. Computed here (not just in the notebook) so that page is
+    # refreshed 3x/day like everything else, with no manual notebook run
+    # required.
     if len(metrics['symbols']) >= 2:
         ef = efficient_frontier(metrics)
         corr, top_syms = correlation_matrix(combined, metrics['rets'], top_n=CORR_TOP_N)
@@ -113,6 +128,22 @@ def run() -> dict:
         save_efficient_frontier_plot(metrics, ef, EFFICIENT_FRONTIER_PNG)
         save_correlation_heatmap_plot(corr, len(top_syms), CORRELATION_HEATMAP_PNG)
         save_mpt_summary(metrics, ef, pairs, MPT_SUMMARY_FILE)
+
+    extras = {
+        'closed_positions': closed_positions_summary(sold_df),
+        'capital': capital_performance(combined, tx_df, sold_df),
+        'risk_contributors': (
+            metrics['risk_contrib'].nlargest(15, 'RiskContrib_pct').reset_index().to_dict('records')
+            if len(metrics['symbols']) >= 2 else []),
+        'max_sharpe_weights': (
+            [{'Symbol': sym, 'Weight_pct': round(float(w), 2)}
+             for sym, w in (ef['w_max_sharpe'] * 100).sort_values(ascending=False).items()
+             if w > 1]
+            if ef is not None else []),
+    }
+    os.makedirs(DATA_STATE_DIR, exist_ok=True)
+    with open(PORTFOLIO_EXTRAS_FILE, 'w') as f:
+        json.dump(extras, f, indent=2, default=str)
 
     messages = detect_alerts(combined, LAST_SNAPSHOT_FILE, earn_cache, ALERTED_EARNINGS_FILE)
     for msg in messages:

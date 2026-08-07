@@ -164,6 +164,71 @@ def dividends_reinvested(tx_df: pd.DataFrame) -> pd.Series:
     return ri.groupby('Year')['Amount'].sum().round(2)
 
 
+def closed_positions_summary(sold_df: pd.DataFrame) -> list[dict]:
+    """Per-symbol realized-gains summary from closed lots — same aggregation
+    notebook cell 2 prints, as JSON-serializable records instead."""
+    if sold_df.empty:
+        return []
+    summ = (sold_df.groupby('Symbol')
+            .agg(Lots=('Quantity', 'count'),
+                 Total_Qty=('Quantity', 'sum'),
+                 Total_GL=('Gain_Loss', 'sum'),
+                 Avg_GL_Pct=('Gain_Loss_Pct', 'mean'),
+                 First_Buy=('Buy_Date', 'min'),
+                 Last_Sell=('Sell_Date', 'max'),
+                 Avg_Hold=('Hold_Days', 'mean'))
+            .sort_values('Total_GL', ascending=False))
+    summ['Avg_Hold'] = summ['Avg_Hold'].round(0).astype(int)
+    summ['Total_GL'] = summ['Total_GL'].round(2)
+    summ['Avg_GL_Pct'] = summ['Avg_GL_Pct'].round(2)
+    return _df_to_records(summ)
+
+
+def capital_performance(combined: pd.DataFrame, tx_df: pd.DataFrame,
+                         sold_df: pd.DataFrame) -> dict:
+    """Cell 3's annual capital activity + cost-basis-vs-market-value +
+    overall ROIC, as a plain JSON-serializable dict."""
+    annual = capital_deployed(tx_df)
+    annual_gl = (sold_df.assign(Year=sold_df['Sell_Date'].dt.year)
+                 .groupby('Year')['Gain_Loss'].sum().round(2)) if not sold_df.empty else pd.Series(dtype=float)
+    annual['Realized_GL'] = annual.index.map(annual_gl).round(2)
+    divs = dividends_reinvested(tx_df)
+
+    eq = combined[combined.index != 'cash'].copy()
+    eq['Cost_Basis'] = (eq['Avg_Buy_Price'] * eq['Quantity']).round(2)
+    eq['Unreal_GL'] = (eq['Market_Value'] - eq['Cost_Basis']).round(2)
+    eq['Unreal_GL%'] = ((eq['Unreal_GL'] / eq['Cost_Basis']) * 100).round(2)
+
+    cost_totals = eq[['Cost_Basis', 'Market_Value', 'Unreal_GL']].sum()
+    total_cost = float(cost_totals['Cost_Basis'])
+    total_mv = float(cost_totals['Market_Value'])
+    total_ugl = float(cost_totals['Unreal_GL'])
+
+    total_realized = float(annual_gl.sum()) if not annual_gl.empty else 0.0
+    total_gl = total_ugl + total_realized
+    closed_cost = float((sold_df['Cost_Per_Share'] * sold_df['Quantity']).sum()) if not sold_df.empty else 0.0
+    total_invested = total_cost + closed_cost
+    roic = (total_gl / total_invested * 100) if total_invested > 0 else float('nan')
+
+    return {
+        'annual_activity': _df_to_records(annual),
+        'dividends_reinvested': _df_to_records(divs.to_frame()) if not divs.empty else [],
+        'holdings_cost_basis': _df_to_records(
+            eq[['Cost_Basis', 'Market_Value', 'Unreal_GL', 'Unreal_GL%']]
+            .sort_values('Unreal_GL%', ascending=False)),
+        'totals': {
+            'cost_basis': total_cost,
+            'market_value': total_mv,
+            'unrealized_gl': total_ugl,
+            'realized_gl': total_realized,
+            'closed_cost_basis': closed_cost,
+            'total_invested': total_invested,
+            'total_pl': total_gl,
+            'roic_pct': roic,
+        },
+    }
+
+
 # ── Cell 5: snapshot-diff trade inference (headless — bug fix #3) ─────────────
 
 def collect_snapshots(past_dir: str, accounts_dir: str) -> dict:
@@ -429,7 +494,7 @@ def _sector_summary(df: pd.DataFrame, group_col: str, gain_cols: list[str]) -> l
             include_groups=False).round(2)
     result = pd.concat([mv, pd.DataFrame(wg)], axis=1)
     result['Total_Market_Value'] = result['Total_Market_Value'].round(2)
-    return _df_to_records(result.reset_index())
+    return _df_to_records(result)
 
 
 def export_app_data(app_data_dir: str, accounts: dict[str, pd.DataFrame],

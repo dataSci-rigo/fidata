@@ -342,29 +342,115 @@ Phases 1-5 are implemented and verified locally:
   `_VM_PROJECTS` now includes `"fiData"`; master `.env` has a new
   `FIDATA_THREAD_ID=` placeholder under the existing `# fiData` section.
 - **systemd units**: reference unit/timer files added under `fiData/systemd/`
-  (`fidata-pipeline`, `fidata-daily-review`, `fidata-weekly-review`) — not
-  yet installed on the VM.
+  (`fidata-pipeline`, `fidata-daily-review`, `fidata-weekly-review`) — paths
+  fixed to `~/apps/fidata` (lowercase, matching the actual VM/GitHub repo
+  directory — see "Naming" below). Not yet installed on the VM.
+
+### Update (2026-08-03/04): Telegram bot, VM naming, panel job controls
+
+- **Dedicated Telegram bot**: rather than sharing `PING_BOT_ID`'s forum
+  topics, fiData got its own bot (`FI_BOT_ID`, added to master `.env`'s
+  `# fiData` section alongside the pre-existing `fi_bot` value).
+  `telegram_alert.py` now DMs the existing global `OWNER_CHAT_ID` directly —
+  no topic/thread setup needed. One-time manual step: message the bot once
+  (e.g. `/start`) so it has a chat to reply into.
+- **Naming**: the VM/GitHub repo directory is lowercase `fidata`, while the
+  local checkout is `fiData`. `env_sync.py`'s `_VM_PROJECTS` uses `"fidata"`
+  with a `_LOCAL_PATH_OVERRIDE` entry mapping it back to `DOCS / "fiData"`
+  (same pattern already used for `fridge-recipes`/`wpi`). Get this wrong and
+  `push_env`/`install_reqs`/`git_pull` fail confusingly.
+- **Panel job controls**: `/fidata` now has a Jobs card (Run Now / Enable /
+  Disable per systemd unit, live status) since the 3 fiData jobs are oneshot
+  timers, not one always-on service — panel's generic Start/Stop/Restart
+  buttons don't fit that shape. See `panel/fidata_routes.py`'s `JOBS`/
+  `_job_status()`/`/api/status`/`/api/action`.
+
+### Update (2026-08-04): env health check, positions dashboard, broker file sync
+
+- **`env_sync.py check`**: validates env-key blanks/drift (local) and VM
+  venv package drift vs each project's `requirements.txt` (one SSH round
+  trip). Run this after any master `.env` edit or before a deploy — it would
+  have caught the blank-thread-id issue from the first Telegram setup.
+- **`env_sync.py push_broker_files`**: manual command to upload
+  `accounts/`/`buysell/`/`past/` from this laptop to the VM after
+  downloading fresh broker exports. Workflow: download exports from your
+  brokers → drop the files into `fiData/accounts/` (or `buysell/`) locally →
+  `python env_sync.py push_broker_files` → the next `fidata-pipeline` run
+  (scheduled, or a manual "Run Now" from the `/fidata` panel Jobs card)
+  picks them up. Plain recursive overwrite, no merge logic — these are files
+  you drop in, not shared mutable state.
+- **Positions/analytics dashboard** (`/positions` on panel, separate from
+  `/fidata`'s Sunday narrative review): full sortable holdings table,
+  sector/cap-tier/vol-tier breakdowns, analyst targets, 3m performance
+  flags, MPT summary, and the efficient-frontier/correlation-heatmap plots —
+  always current, refreshed by the pipeline 3x/day. This required extending
+  `run_pipeline.py` (previously it only refreshed prices/cost-basis/alerts,
+  never the enrichment columns — `Sector`/`Cap_Tier`/`Vol_Tier`/`Gain_3m`/etc
+  were silently missing from every headless run's `combined.json` until
+  this fix) to also call `enrich.symbol_metrics()`/`classify_sectors()` and
+  the new `analytics.mpt_metrics()`/`efficient_frontier()`/
+  `correlation_matrix()` → `plotting.py`'s Agg-backend plot savers. The
+  notebook's cells 16/17 now call the same `plotting.py` functions (via a
+  `build_*_figure()`/`save_*_plot()` split so the notebook keeps its
+  interactive `plt.show()` while the headless pipeline just saves+closes).
 
 ### What's left — needs you, not more code
 
-1. **Create the Telegram topic.** Open the `PINGER_CHANNEL_ID` forum group,
-   create a new topic for fiData, and fill in its numeric thread id as
-   `FIDATA_THREAD_ID` in `/home/ai1/Documents/.env` (currently blank — until
-   it's set, `telegram_alert.send_telegram()` just logs to stdout instead of
-   sending). Then run `python env_sync.py sync` to propagate it.
-2. **Deploy to the VM**: `git push` → `python env_sync.py git_pull fiData` →
-   `python env_sync.py install_reqs fiData` → `python env_sync.py push_env fiData`
-   → `python env_sync.py deploy_panel` (for the new blueprint/template) →
-   copy `fiData/systemd/*.service` and `*.timer` to `~/.config/systemd/user/`
-   (or `/etc/systemd/system/` with root paths adjusted) on the VM, then
-   `systemctl daemon-reload && systemctl enable --now fidata-pipeline.timer
-   fidata-daily-review.timer fidata-weekly-review.timer`.
-3. **`ANTHROPIC_API_KEY` / model check**: `ai_review.py` defaults to
+1. **Deploy to the VM**: `git push` → `python env_sync.py git_pull fidata` →
+   `python env_sync.py install_reqs fidata` → `python env_sync.py push_env fidata`
+   → `python env_sync.py deploy_panel` (for the new blueprints/templates) →
+   copy `fiData/systemd/*.service` and `*.timer` to the VM's systemd unit dir,
+   then `systemctl daemon-reload && systemctl enable --now
+   fidata-pipeline.timer fidata-daily-review.timer fidata-weekly-review.timer`.
+2. **`ANTHROPIC_API_KEY` / model check**: `ai_review.py` defaults to
    `claude-sonnet-4-6` (matching `todo_list/franklin/coach.py`'s existing
    convention) with an override via `FIDATA_COACH_MODEL` — confirm that's
    still the model you want before the first real weekly review runs.
-4. Run the two verification steps that need live Telegram/Claude
-   credentials, which weren't exercised in this session: an actual
-   `send_telegram()` round-trip once `FIDATA_THREAD_ID` is set, and one real
-   `daily_summary()`/`weekly_deep_review()` call against the live
-   `ANTHROPIC_API_KEY`.
+3. Run the two verification steps that need live Claude credentials, which
+   weren't exercised this session: one real `daily_summary()`/
+   `weekly_deep_review()` call against the live `ANTHROPIC_API_KEY`.
+4. `python env_sync.py check` currently flags `fidata`'s venv as
+   missing/unreachable on the VM (expected — `install_reqs fidata` hasn't
+   been run there yet as of this writing) and a few pre-existing unrelated
+   drift items in other projects (`arcade`, `fridge-recipes`,
+   `semantic_task_manager`) — worth a look next time you touch those.
+
+### Update (2026-08-06): full notebook-data parity on /positions
+
+You asked to see *everything* the notebook computes on the `/positions` webapp, not just a
+subset. Audited every cell against what was actually exported/rendered and closed three
+kinds of gap:
+
+- **Template-only gaps** (data already existed, just wasn't shown): `flags.json`'s
+  `high_trailing_pe`/`high_forward_pe`/`low_forward_pe`, `targets.json`'s `tightest`,
+  `earnings.json`, `recommendations.json`, and `accounts.json` are now all rendered on
+  `/positions`. The Holdings table gained Days_Held, Return %, Ann_Vol, Sharpe_1yr, Beta,
+  and Cost_Basis_Source columns (all were already in `combined.json`, just not shown).
+- **A real data gap, found while doing this**: `mpt_metrics()` returns per-symbol
+  `beta_alpha` (Beta/Alpha_pct vs SPY) — the notebook's cell 15 always merged this into
+  `combined`, but `run_pipeline.py` never did, so **every headless pipeline run silently
+  dropped Beta/Alpha_pct from `combined.json`** — same class of bug as the Sector/Cap_Tier
+  gap found earlier. Fixed by computing `mpt_metrics()` *before* `export_app_data()` in
+  `run_pipeline.py` and merging `Beta`/`Alpha_pct` in, same pattern as Sector/Cap_Tier/Vol_Tier.
+- **Never exported anywhere**: cell 2's closed-positions/realized-gains summary, cell 3's
+  Capital Tracking & Cash-Adjusted Performance (annual activity, cost-basis-vs-market-value,
+  overall ROIC), cell 15's risk-contribution table, and cell 16's max-Sharpe weight
+  allocation were all print-only. Added `analytics.closed_positions_summary()` and
+  `analytics.capital_performance()`; `run_pipeline.py` now writes all four into one new
+  `data/portfolio_extras.json`. Notebook cells 2 and 3 now call these same functions instead
+  of duplicating the arithmetic inline (same "cell becomes thin orchestration" pattern used
+  throughout this refactor) — verified their printed output is unchanged.
+- **Bonus fix while in this code**: `_sector_summary()` and the new `capital_performance()`
+  helpers were both accidentally calling `.reset_index()` before passing to
+  `_df_to_records()`, which *also* resets the index — this leaked a spurious `"index": 0`
+  field into every `sectors.json` record (harmless, since nothing read it, but sloppy).
+  Fixed by removing the redundant pre-reset.
+- **New**: `panel/positions_routes.py` reads fiData's own `.env` (`ACC_<suffix>=<name>`) to
+  label the new Per-Account Breakdown section with friendly names instead of raw account
+  suffixes — same mapping the notebook's cell 0 already uses.
+
+Verified: `pytest fiData/tests/` green, `run_pipeline.py` run locally end-to-end (confirmed
+`Beta`/`Alpha_pct` populate in `combined.json`, `portfolio_extras.json` has sane numbers
+matching the notebook's own cell 2/3 output), Flask test-client smoke tests on `/positions/`
+with both real data (zero empty-state cards) and all data files missing (clean 200 with
+every section's empty-state fallback, no crash).
