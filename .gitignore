@@ -10,5 +10,8 @@ __pycache__
 *.json
 *.jsx
 predict
-tests
+
 __pycache__
+.pdf
+*.pdf
+*.PDF
