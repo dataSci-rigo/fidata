@@ -11,17 +11,30 @@ import json
 import os
 import sys
 
-# Must happen before any matplotlib.pyplot import (directly or via
-# plotting.py) — headless run, no display available. plotting.py
-# deliberately doesn't set this itself so the notebook's own Jupyter-provided
-# interactive backend isn't clobbered when it imports the same module.
+from dotenv import dotenv_values
+
+_DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _DATA_DIR)
+
+# Must happen before importing telegram_alert (which reads FI_BOT_ID/
+# OWNER_CHAT_ID from os.environ at *module import time*) and before any
+# matplotlib.pyplot import (directly or via plotting.py — headless run, no
+# display available). Loading .env here, ahead of every local import, is
+# what makes `python run_pipeline.py` work standalone; running under
+# systemd works either way since EnvironmentFile= already populates
+# os.environ before the interpreter even starts, which is why this bug
+# went unnoticed — every local/manual run silently sent zero Telegram
+# alerts despite FI_BOT_ID being set correctly in .env.
+for _k, _v in dotenv_values(os.path.join(_DATA_DIR, '.env')).items():
+    os.environ.setdefault(_k, _v)
+
+# plotting.py deliberately doesn't set the backend itself so the notebook's
+# own Jupyter-provided interactive backend isn't clobbered when it imports
+# the same module.
 import matplotlib
 matplotlib.use('Agg')
 
 import pandas as pd
-from dotenv import dotenv_values
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from parsers import load_positions
 from parsers.transactions import load_realized_lots, load_transactions
@@ -39,7 +52,7 @@ from plotting import save_correlation_heatmap_plot, save_efficient_frontier_plot
 from alerts import detect_alerts, save_snapshot
 from telegram_alert import send_telegram
 
-DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = _DATA_DIR
 ACCOUNTS_DIR = os.path.join(DATA_DIR, 'accounts')
 BUYSELL_DIR = os.path.join(DATA_DIR, 'buysell')
 PAST_DIR = os.path.join(DATA_DIR, 'past')
@@ -157,10 +170,6 @@ def run() -> dict:
 
 
 if __name__ == '__main__':
-    _env = dotenv_values(os.path.join(DATA_DIR, '.env'))
-    for k, v in _env.items():
-        os.environ.setdefault(k, v)
-
     result = run()
     print(f"Pipeline complete. {len(result['alerts_sent'])} alert(s) sent.")
     for m in result['alerts_sent']:

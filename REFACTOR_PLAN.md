@@ -454,3 +454,62 @@ Verified: `pytest fiData/tests/` green, `run_pipeline.py` run locally end-to-end
 matching the notebook's own cell 2/3 output), Flask test-client smoke tests on `/positions/`
 with both real data (zero empty-state cards) and all data files missing (clean 200 with
 every section's empty-state fallback, no crash).
+
+### Update (2026-08-11/12): systemd timers actually installed, backup + integrity test,
+### clean-slate cache rebuild, and a real env-loading bug found in the process
+
+The `/fidata` Jobs card was correctly reporting `DISABLED`/"Timer not scheduled" for all
+three jobs — not a UI bug, the systemd units had genuinely never been installed on the VM.
+Fixed for real this time:
+
+- **`fiData/systemd/*.service`** were using `%h/apps/fidata` with no `User=`, which doesn't
+  reliably resolve for system-wide units. Rewrote all three to match the confirmed-working
+  convention from `/etc/systemd/system/app-todo.service` (`User=ai1`, absolute
+  `/home/ai1/apps/fidata/...` paths, `EnvironmentFile=.../fidata/.env`). Installed on the VM,
+  `daemon-reload`, `enable --now` all three timers — confirmed via
+  `systemctl list-timers` and `/fidata/api/status` (all three now `enabled: true` with a real
+  `next_run`).
+- **The VM had no venv for fiData at all** (`install_reqs` was never run there) — ran
+  `env_sync.py install_reqs fidata` to fix.
+- **Found via live testing, not by inspection**: `/fidata`'s "Run Now" button 500'd. Root
+  cause — `systemctl start <oneshot>.service` blocks *synchronously* until the unit finishes
+  (a multi-minute yfinance-heavy run), blowing past `panel/fidata_routes.py`'s `_run()`
+  helper's 10s subprocess timeout, even though the job itself had started fine. Fixed with
+  `systemctl --no-block start`, so the button returns immediately and `/api/status` is
+  polled for progress. Verified end-to-end after the fix: pipeline run, daily-review run
+  (real Claude-generated summary + Telegram send) — the whole systemd → pipeline → Claude →
+  Telegram chain confirmed working live on the VM.
+- **Backup**: zipped `accounts/`/`buysell/`/`past/` to
+  `~/Documents/data_backups/fidata_broker_export_<date>.zip`. Ran a one-time integrity test
+  — unzipped into a scratch dir, ran the exact same `load_positions()`/`load_transactions()`/
+  `load_realized_lots()` functions against it, diffed against the live directories: exact
+  match on all 10 accounts, `tx_df`, and `sold_df`. Scratch dir removed after.
+- **Clean-slate cache rebuild**: several real bugs (Sector/Cap/Vol, then Beta/Alpha, both
+  silently missing from every run until recently) meant existing derived caches might not
+  reflect the current, fixed code. Moved (not deleted) `historical.csv`, `sectors.csv`,
+  `earnings.csv`, `portfolio.csv`, `file_clean.csv`, the two plot PNGs, all of `app_data/`,
+  and only the fiData-pipeline-generated files under `data/` (**not** the unrelated
+  reference spreadsheets — `ai_semi_moat.xlsx`, `fredgraph.xlsx`, `Holdings.xlsx`, the "Tech
+  Bubbles" files, etc. — that happen to also live in `data/` from before this project existed)
+  into `fiData/_pre_reset_backup_<date>/`. Reran `run_pipeline.py` from scratch.
+- **Second real bug, found because the clean-slate run made it visible**: `telegram_alert.py`
+  reads `FI_BOT_ID`/`OWNER_CHAT_ID` from `os.environ` at **module import time**, but
+  `run_pipeline.py` only loaded `.env` inside `if __name__ == '__main__':` — which runs
+  *after* all top-level imports (including `from telegram_alert import send_telegram`). So
+  every local/manual `python run_pipeline.py` run silently had Telegram disabled, the whole
+  time, regardless of `.env` being correct — it only ever worked under systemd because
+  `EnvironmentFile=` populates `os.environ` before the interpreter even starts. Fixed by
+  moving the `.env` load to the very top of `run_pipeline.py`, before any local imports;
+  `run_daily_review.py`/`run_weekly_review.py` get this transitively since they import
+  `run_pipeline` first (before `ai_review`/`telegram_alert`) — verified with a fully clean
+  `env -i` subprocess that `FI_BOT_ID`/`ANTHROPIC_API_KEY` are visible after import with no
+  other env setup.
+- Post-rebuild verification: `combined.json` has `Beta`/`Alpha_pct` populated for all 122
+  equity symbols (0 missing), `sectors.json` has no stray `"index"` field, all four
+  `portfolio_extras.json` keys present with sane data, `pytest fiData/tests/` green.
+
+**Note**: the systemd/env-loading fixes above are committed locally but the VM's
+`~/apps/fidata` clone predates them (git-pulled before this update) — the VM currently runs
+the pre-fix `run_pipeline.py`. Since it's driven by `EnvironmentFile=` under systemd, Telegram
+already works fine there regardless; the fix mainly matters for manual/local runs. Next
+`git push` + `env_sync.py git_pull fidata` will bring the VM copy current.
