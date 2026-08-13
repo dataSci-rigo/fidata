@@ -1,0 +1,6 @@
+
+
+Run Date,Account,Account Number,Action,Symbol,Description,Type,Price ($),Quantity,Commission ($),Fees ($),Accrued Interest ($),Amount ($),Settlement Date
+06/01/2024,"Test Account","999900000","YOU BOUGHT TEST STOCK J (JJJ) (Cash)",JJJ,"TEST STOCK J",Cash,50.00,10,,,,-500.00,06/02/2024
+06/05/2024,"Test Account","999900000","YOU SOLD TEST STOCK J (JJJ) (Cash)",JJJ,"TEST STOCK J",Cash,55.00,4,,,,220.00,06/06/2024
+06/10/2024,"Test Account","999900000","REINVESTMENT TEST STOCK K (KKK) (Cash)",KKK,"TEST STOCK K",Cash,20.00,5,,,,-100.00,06/11/2024
