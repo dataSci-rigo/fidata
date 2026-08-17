@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{# Generic tabbed-table page. Six routes share this one template, driven by a
+   route-supplied [(tab_label, columns, rows)] spec — the same idea as
+   viewer_app.py's single _table() builder. #}
+{% block body %}
+  {% if note %}<p class="count">{{ note }}</p>{% endif %}
+  {% if not specs %}
+    <div class="empty">Nothing to show yet — run <code>python run_pipeline.py</code>.</div>
+  {% else %}
+    <div class="tabwrap">
+      {% if specs|length > 1 %}
+        <div class="tabs">
+          {% for label, cols, rows in specs %}
+            <button data-pane="pane{{ loop.index }}" class="{{ 'on' if loop.first }}">{{ label }}</button>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% for label, cols, rows in specs %}
+        <div class="tabpane {{ 'on' if loop.first }}" id="pane{{ loop.index }}">
+          {% if not rows %}
+            <div class="empty">No rows for {{ label }}.</div>
+          {% else %}
+            {% with tid = 't' ~ loop.index %}
+              {% include "_table.html" %}
+            {% endwith %}
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endblock %}

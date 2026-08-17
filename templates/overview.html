@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block body %}
+  {% if not totals and not summary %}
+    <div class="empty">No pipeline output yet — run <code>python run_pipeline.py</code>.</div>
+  {% else %}
+    <div class="cards">
+      {% for key, label, kind in [
+          ('market_value','Market Value','$big'), ('cost_basis','Cost Basis','$big'),
+          ('unrealized_gl','Unrealized G/L','$big'), ('realized_gl','Realized G/L','$big'),
+          ('total_invested','Total Invested','$big'), ('total_pl','Total P/L','$big'),
+          ('roic_pct','ROIC','%')] %}
+        {% if totals.get(key) is not none %}
+          {% set txt, klass = cell(totals.get(key), kind) %}
+          <a class="card" href="/capital">
+            <div class="k">{{ label }}</div>
+            <div class="v {{ klass if key not in ('market_value','cost_basis','total_invested') }}">{{ txt }}</div>
+          </a>
+        {% endif %}
+      {% endfor %}
+      <a class="card" href="/holdings">
+        <div class="k">Positions</div><div class="v">{{ n_positions }}</div>
+      </a>
+    </div>
+
+    {% if summary %}
+      <h2>Portfolio risk</h2>
+      <div class="cards">
+        {% for k, label, kind in [('port_beta','Beta','f2'), ('hhi','HHI','int'),
+                                   ('effective_n','Effective N','f2'),
+                                   ('rf_annual','Risk-free','pct'),
+                                   ('n_symbols','Symbols in MPT','int')] %}
+          {% if summary.get(k) is not none %}
+            <a class="card" href="/risk">
+              <div class="k">{{ label }}</div>
+              <div class="v">{{ fmt(summary.get(k), kind) }}</div>
+            </a>
+          {% endif %}
+        {% endfor %}
+      </div>
+
+      <h2>Return / volatility</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Portfolio</th><th>Return</th><th>Volatility</th><th>Sharpe</th></tr></thead>
+          <tbody>
+            {% for m in mpt %}
+              <tr>
+                <td>{{ m.label }}</td>
+                <td data-v="{{ m.ret }}">{{ fmt(m.ret, 'pct') }}</td>
+                <td data-v="{{ m.vol }}">{{ fmt(m.vol, 'pct') }}</td>
+                <td data-v="{{ m.sharpe }}">{{ fmt(m.sharpe, 'f2') }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+
+    <h2>Alerts from the last run</h2>
+    {% if alerts %}
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Message</th></tr></thead>
+          <tbody>{% for m in alerts %}<tr><td>{{ m }}</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+      {% if alerts_run_at %}<p class="cap">sent {{ alerts_run_at[:19]|replace('T',' ') }}</p>{% endif %}
+    {% else %}
+      <div class="empty">No alerts on the last run.</div>
+    {% endif %}
+
+    <h2>Data freshness</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Artifact</th><th>Status</th><th>Age (h)</th></tr></thead>
+        <tbody>
+          {% for s in status %}
+            <tr>
+              <td>{{ s.name }}</td>
+              <td class="{{ 'pos' if s.exists else 'neg' }}">{{ 'present' if s.exists else 'missing' }}</td>
+              <td data-v="{{ s.age_hours }}">{{ fmt(s.age_hours, 'f2') if s.age_hours is not none else '—' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+{% endblock %}

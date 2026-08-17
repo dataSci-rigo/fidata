@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fiData · {{ title }}</title>
+<style>
+  /* Palette mirrors viewer_app.py's theme constants. */
+  :root{
+    --bg:#1e1e2e; --panel:#2a2a3e; --panel2:#31314a; --accent:#7c6af7;
+    --text:#cdd6f4; --dim:#6c7086; --green:#a6e3a1; --red:#f38ba8;
+    --yellow:#f9e2af; --blue:#89b4fa; --line:#3a3a5e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif}
+  a{color:var(--blue);text-decoration:none}
+  a:hover{text-decoration:underline}
+  header{background:var(--panel);border-bottom:1px solid var(--line);
+         position:sticky;top:0;z-index:20}
+  .bar{display:flex;align-items:center;gap:6px;padding:0 16px;flex-wrap:wrap}
+  .brand{font-weight:700;font-size:18px;color:var(--accent);margin-right:14px;
+         padding:12px 0;letter-spacing:.5px}
+  nav a{display:inline-block;padding:12px 10px;color:var(--text);font-size:13px;
+        border-bottom:2px solid transparent}
+  nav a.on{color:var(--accent);border-bottom-color:var(--accent)}
+  main{padding:18px 16px 48px;max-width:1600px;margin:0 auto}
+  h1{font-size:20px;margin:0 0 14px}
+  h2{font-size:15px;margin:24px 0 8px;color:var(--text)}
+  .banner{padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:13px}
+  .warn{background:#3a3320;border:1px solid var(--yellow);color:var(--yellow)}
+  .empty{background:var(--panel);border:1px dashed var(--line);color:var(--dim);
+         padding:22px;border-radius:10px;text-align:center}
+  code{background:var(--panel2);padding:2px 6px;border-radius:4px;
+       font-family:ui-monospace,Menlo,Consolas,monospace;color:var(--text)}
+  .cards{display:flex;flex-wrap:wrap;gap:10px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+        padding:12px 14px;min-width:150px;flex:1}
+  .card .k{color:var(--dim);font-size:11px;text-transform:uppercase;
+           letter-spacing:.6px}
+  .card .v{font-size:19px;font-weight:600;margin-top:3px}
+  .pos{color:var(--green)} .neg{color:var(--red)} .muted{color:var(--dim)}
+  .tabs{display:flex;flex-wrap:wrap;gap:4px;margin:14px 0 10px}
+  .tabs button{background:var(--panel);color:var(--text);border:1px solid var(--line);
+               border-radius:7px;padding:6px 12px;font-size:13px;cursor:pointer}
+  .tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .tabpane{display:none} .tabpane.on{display:block}
+  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;
+          background:var(--panel)}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{padding:6px 10px;text-align:right;white-space:nowrap;
+        border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child{text-align:left;position:sticky;left:0;
+        background:var(--panel)}
+  thead th{position:sticky;top:0;background:var(--panel2);cursor:pointer;
+           user-select:none;font-size:11px;text-transform:uppercase;
+           letter-spacing:.5px;color:var(--dim);z-index:2}
+  thead th:first-child{z-index:3}
+  thead th:hover{color:var(--text)}
+  tbody tr:nth-child(even){background:rgba(255,255,255,.02)}
+  tbody tr:hover{background:rgba(124,106,247,.10)}
+  tr.cash td{color:var(--dim);font-style:italic}
+  .filter{background:var(--panel2);color:var(--text);border:1px solid var(--line);
+          border-radius:7px;padding:7px 11px;font-size:13px;min-width:230px}
+  .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  .count{color:var(--dim);font-size:12px}
+  img.fig{max-width:100%;height:auto;border-radius:10px;border:1px solid var(--line);
+          background:var(--panel)}
+  .cap{color:var(--dim);font-size:11px;margin-top:4px}
+  footer{color:var(--dim);font-size:11px;padding:16px;text-align:center;
+         border-top:1px solid var(--line);margin-top:32px}
+  .prose{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+         padding:14px 16px;white-space:pre-wrap;line-height:1.6}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <span class="brand">fiData</span>
+    <nav>
+      {% set links = [('overview','/','Overview'), ('holdings','/holdings','Holdings'),
+                      ('accounts','/accounts','Accounts'), ('sectors','/sectors','Sectors'),
+                      ('flags','/flags','Flags'), ('analysts','/analysts','Analysts'),
+                      ('risk','/risk','Risk'), ('capital','/capital','Capital'),
+                      ('chart','/chart','Chart')] %}
+      {% for key, href, label in links %}
+        <a href="{{ href }}" class="{{ 'on' if active == key }}">{{ label }}</a>
+      {% endfor %}
+      {% if has_review %}
+        <a href="/review" class="{{ 'on' if active == 'review' }}">Review</a>
+      {% endif %}
+    </nav>
+  </div>
+</header>
+<main>
+  {% if not has_data %}
+    <div class="banner warn">
+      No pipeline output found. Run <code>python run_pipeline.py</code> to populate
+      <code>app_data/</code>, then reload.
+    </div>
+  {% elif stale %}
+    <div class="banner warn">
+      Data is {{ '%.0f'|format(oldest_hours) }}h old — the pipeline normally runs at
+      07:00, 13:00 and 19:00. Run <code>python run_pipeline.py</code> to refresh.
+    </div>
+  {% endif %}
+  <h1>{{ title }}</h1>
+  {% block body %}{% endblock %}
+</main>
+<footer>
+  read-only view of the last pipeline run ·
+  {% if oldest_hours is not none %}oldest artifact {{ '%.1f'|format(oldest_hours) }}h old
+  {% else %}no artifacts yet{% endif %}
+</footer>
+<script>
+// Sort on header click. Numeric when the raw value parses, else text.
+document.addEventListener('click', function (e) {
+  const th = e.target.closest('thead th');
+  if (!th) return;
+  const table = th.closest('table');
+  const idx = [...th.parentNode.children].indexOf(th);
+  const asc = !(th.dataset.asc === 'true');
+  [...th.parentNode.children].forEach(h => delete h.dataset.asc);
+  th.dataset.asc = asc;
+  const body = table.tBodies[0];
+  const rows = [...body.rows];
+  const raw = r => {
+    const c = r.cells[idx];
+    return c && c.dataset.v !== undefined ? c.dataset.v : (c ? c.textContent : '');
+  };
+  rows.sort((a, b) => {
+    const x = raw(a), y = raw(b);
+    const nx = parseFloat(x), ny = parseFloat(y);
+    const bothNum = !isNaN(nx) && !isNaN(ny) && x !== '' && y !== '';
+    if (bothNum) return asc ? nx - ny : ny - nx;
+    return asc ? String(x).localeCompare(String(y)) : String(y).localeCompare(String(x));
+  });
+  rows.forEach(r => body.appendChild(r));
+});
+// Filter rows by substring.
+document.addEventListener('input', function (e) {
+  if (!e.target.classList.contains('filter')) return;
+  const q = e.target.value.toLowerCase();
+  const table = document.querySelector(e.target.dataset.target);
+  if (!table) return;
+  let shown = 0;
+  [...table.tBodies[0].rows].forEach(r => {
+    const hit = r.textContent.toLowerCase().includes(q);
+    r.style.display = hit ? '' : 'none';
+    if (hit) shown++;
+  });
+  const c = document.querySelector(e.target.dataset.count);
+  if (c) c.textContent = shown + ' rows';
+});
+// Tabs.
+document.addEventListener('click', function (e) {
+  const btn = e.target.closest('.tabs button');
+  if (!btn) return;
+  const wrap = btn.closest('.tabwrap');
+  wrap.querySelectorAll('.tabs button').forEach(b => b.classList.remove('on'));
+  wrap.querySelectorAll('.tabpane').forEach(p => p.classList.remove('on'));
+  btn.classList.add('on');
+  wrap.querySelector('#' + btn.dataset.pane).classList.add('on');
+});
+</script>
+</body>
+</html>

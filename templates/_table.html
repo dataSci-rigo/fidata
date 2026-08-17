@@ -1,0 +1,18 @@
+{# One table. `cols` pins column order; `rows` are plain dicts from app_data.
+   data-v carries the raw value so the sort script never has to unpick "$1,234". #}
+<div class="scroll">
+  <table id="{{ tid }}">
+    <thead><tr>{% for c in cols %}<th>{{ humanize(c) }}</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for r in rows %}
+        <tr class="{{ 'cash' if r.get('Symbol') == 'cash' }}">
+          {% for c in cols %}
+            {% set txt, klass = cell(r.get(c), col_kind(c)) %}
+            <td class="{{ klass if c not in ('Symbol','Sector','Cap_Tier','Vol_Tier','Consensus','Quote_Type','Cost_Basis_Source') }}"
+                data-v="{{ r.get(c) if r.get(c) is not none }}">{{ txt }}</td>
+          {% endfor %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

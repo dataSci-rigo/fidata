@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block body %}
+  {% if not rows %}
+    <div class="empty">No holdings yet — run <code>python run_pipeline.py</code>.</div>
+  {% else %}
+    <div class="toolbar">
+      <input class="filter" data-target="#holdings" data-count="#hcount"
+             placeholder="Filter by symbol, sector, tier…">
+      <span class="count" id="hcount">{{ rows|length }} rows</span>
+      <span class="count">· click any header to sort · cash pinned last</span>
+    </div>
+    {% with tid = 'holdings' %}
+      {% include "_table.html" %}
+    {% endwith %}
+  {% endif %}
+{% endblock %}

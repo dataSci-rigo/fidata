@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block body %}
+  {% if not symbols %}
+    <div class="empty">
+      No price history yet — <code>historical.csv</code> is written by
+      <code>python run_pipeline.py</code>.
+    </div>
+  {% else %}
+    {# GET form so the chart URL stays bookmarkable. #}
+    <form class="toolbar" method="get" action="/chart">
+      <label class="count">Symbol</label>
+      <select class="filter" name="symbol" onchange="this.form.submit()">
+        {% for s in symbols %}
+          <option value="{{ s }}" {{ 'selected' if s == symbol }}>{{ s }}</option>
+        {% endfor %}
+      </select>
+      <label class="count">From</label>
+      <input class="filter" type="date" name="start" value="{{ start }}" style="min-width:150px">
+      <label class="count">To</label>
+      <input class="filter" type="date" name="end" value="{{ end }}" style="min-width:150px">
+      <button class="filter" type="submit" style="cursor:pointer">Plot</button>
+    </form>
+    <p>
+      <img class="fig" alt="{{ symbol }} price and drawdown"
+           src="/fig/price/{{ symbol }}.png?start={{ start }}&end={{ end }}">
+    </p>
+    <p class="cap">
+      Annualized vol, Sharpe (at the pipeline's live risk-free rate) and max
+      drawdown are computed over the selected range.
+    </p>
+  {% endif %}
+{% endblock %}

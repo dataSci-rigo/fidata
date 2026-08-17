@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block body %}
+  {% if not summary %}
+    <div class="empty">
+      No MPT summary yet — it needs at least 2 priced symbols and a
+      <code>python run_pipeline.py</code> run.
+    </div>
+  {% else %}
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Portfolio</th><th>Return</th><th>Volatility</th><th>Sharpe</th></tr></thead>
+        <tbody>
+          {% for m in mpt %}
+            <tr>
+              <td>{{ m.label }}</td>
+              <td data-v="{{ m.ret }}">{{ fmt(m.ret, 'pct') }}</td>
+              <td data-v="{{ m.vol }}">{{ fmt(m.vol, 'pct') }}</td>
+              <td data-v="{{ m.sharpe }}">{{ fmt(m.sharpe, 'f2') }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="cap">
+      HHI {{ fmt(summary.get('hhi'), 'int') }} ·
+      Effective N {{ fmt(summary.get('effective_n'), 'f2') }} ·
+      Beta {{ fmt(summary.get('port_beta'), 'f2') }} ·
+      risk-free {{ fmt(summary.get('rf_annual'), 'pct') }}
+    </p>
+  {% endif %}
+
+  <h2>Figures</h2>
+  {# Pre-rendered by the pipeline: the Monte-Carlo scatter and correlation
+     matrix behind these are not persisted, so rebuilding them per page view
+     would mean re-running most of run_pipeline.run(). #}
+  {% for f in figs %}
+    {% if f.exists %}
+      <p>
+        <img class="fig" src="/fig/{{ f.key }}.png?v={{ f.mtime|int }}" alt="{{ f.label }}">
+        <span class="cap">{{ f.label }} · rendered {{ f.mtime|int|string }} (epoch)</span>
+      </p>
+    {% else %}
+      <div class="empty">{{ f.label }} not generated yet.</div>
+    {% endif %}
+  {% endfor %}
+
+  <h2>Risk contributors</h2>
+  {% if contributors %}
+    {% with tid='rc', cols=['Symbol','Weight_pct','RiskContrib_pct'], rows=contributors %}
+      {% include "_table.html" %}
+    {% endwith %}
+  {% else %}<div class="empty">No risk contribution data.</div>{% endif %}
+
+  <h2>Max-Sharpe weights</h2>
+  {% if weights %}
+    {% with tid='mw', cols=['Symbol','Weight_pct'], rows=weights %}
+      {% include "_table.html" %}
+    {% endwith %}
+  {% else %}<div class="empty">No max-Sharpe weights.</div>{% endif %}
+
+  <h2>Highly correlated pairs</h2>
+  {% if pairs %}
+    {% with tid='hc', cols=['symbol_a','symbol_b','correlation'], rows=pairs %}
+      {% include "_table.html" %}
+    {% endwith %}
+  {% else %}<div class="empty">No pairs above the correlation threshold.</div>{% endif %}
+{% endblock %}

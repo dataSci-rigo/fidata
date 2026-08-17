@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block body %}
+  {% if not dates %}
+    <div class="empty">
+      No weekly reviews yet — <code>python run_weekly_review.py</code> writes
+      <code>data/weekly_review_&lt;date&gt;.json</code>.
+    </div>
+  {% else %}
+    <div class="toolbar">
+      {% for d in dates %}
+        <a class="filter" style="min-width:0;text-decoration:none;
+           {{ 'background:var(--accent);color:#fff' if d == chosen }}"
+           href="/review/{{ d }}">{{ d }}</a>
+      {% endfor %}
+    </div>
+    {% for name, text in sections.items() %}
+      <h2>{{ name }}</h2>
+      <div class="prose">{{ text }}</div>
+    {% endfor %}
+    {% if not sections %}
+      <div class="empty">That review is empty.</div>
+    {% endif %}
+  {% endif %}
+{% endblock %}
