@@ -11,7 +11,7 @@ import re
 
 import pandas as pd
 
-from .common import clean_num, is_option
+from .common import account_key, clean_num, is_option
 
 
 def _parse_action(action_str) -> str | None:
@@ -59,10 +59,10 @@ def parse_history_csv(filepath: str) -> list[dict]:
         qty = abs(pd.to_numeric(row.get('Quantity', 0), errors='coerce') or 0)
         price = pd.to_numeric(row.get('Price ($)', None), errors='coerce')
         if multi_acct:
-            acct = str(row.get('Account Number', '')).strip()[-4:]
+            acct = account_key(row.get('Account Number', ''))
         else:
             m = re.search(r'(\d{9,})', fn)
-            acct = m.group(1)[-4:] if m else fn
+            acct = account_key(m.group(1)) if m else fn
         rows.append(dict(Symbol=sym, Date=dt, Action=action,
                           Quantity=qty, Price=price, Account=acct))
     return rows
@@ -75,7 +75,7 @@ def parse_history_xlsx(filepath: str) -> list[dict]:
         meta = pd.read_excel(filepath, header=None, nrows=6)
         acct_raw = str(meta.iloc[4, 1]).strip()          # "Account: XRA580898"
         acct_id = re.sub(r'[^A-Z0-9]', '', acct_raw)
-        acct = acct_id[-4:]
+        acct = account_key(acct_id)
 
         df = pd.read_excel(filepath, skiprows=6, header=0)
         df.columns = df.columns.str.strip()
@@ -157,8 +157,17 @@ def parse_realized_gain_csv(filepath: str) -> list[dict]:
     return rows
 
 
-def load_transactions(buysell_dir: str) -> pd.DataFrame:
-    """All BUY/SELL/REINVEST rows from every transaction-history file in buysell_dir."""
+def load_transactions(buysell_dir: str, split_table: dict | None = None) -> pd.DataFrame:
+    """All BUY/SELL/REINVEST rows from every transaction-history file in buysell_dir.
+
+    With `split_table`, pre-split fills are restated into today's share terms:
+    Quantity is scaled by the cumulative ratio since the trade date and Price
+    divided by it. Without this, `analytics.compute_cost_basis` averages prices
+    from either side of a split as if they were the same unit, and the result
+    is compared against a post-split live price — e.g. KORU bought at $383.39
+    (adjusted: $18.68) against a $21.50 quote. Price x Quantity is preserved,
+    so `capital_deployed`'s dollar totals are unchanged.
+    """
     tx_rows: list[dict] = []
     for fn in sorted(os.listdir(buysell_dir)):
         fp = os.path.join(buysell_dir, fn)
@@ -171,21 +180,54 @@ def load_transactions(buysell_dir: str) -> pd.DataFrame:
              else pd.DataFrame(columns=['Symbol', 'Date', 'Action', 'Quantity', 'Price', 'Account']))
     if not tx_df.empty:
         tx_df['Date'] = pd.to_datetime(tx_df['Date'])
+        # Broker exports overlap: a multi-account history file (e.g. Fidelity's
+        # Accounts_History.csv) covers the same trades as the per-account
+        # History_for_Account_*.csv files. Dedupe on the trade itself, ignoring
+        # Account — the same fill exported twice must not be counted twice in
+        # capital_deployed or cost basis.
+        before = len(tx_df)
+        tx_df = (tx_df.drop_duplicates(subset=['Symbol', 'Date', 'Action', 'Quantity', 'Price'])
+                       .reset_index(drop=True))
+        dropped = before - len(tx_df)
+        if dropped:
+            print(f'transactions: dropped {dropped} duplicate row(s) of {before}')
+
+        if split_table:
+            import splits as _splits
+            factors = pd.Series(
+                [_splits.factor_since(split_table, str(s), d)
+                 for s, d in zip(tx_df['Symbol'], tx_df['Date'])],
+                index=tx_df.index, dtype=float)
+            n = int((factors != 1.0).sum())
+            if n:
+                tx_df['Quantity'] = tx_df['Quantity'] * factors
+                tx_df['Price'] = tx_df['Price'] / factors
+                print(f'transactions: split-adjusted {n} pre-split row(s) '
+                      f'({", ".join(sorted(set(tx_df.loc[factors != 1.0, "Symbol"])))})')
     return tx_df
 
 
-def load_realized_lots(buysell_dir: str, cutoff: pd.Timestamp) -> pd.DataFrame:
-    """All realized-gain lots from Schwab lot-detail CSVs in buysell_dir.
+def load_realized_lots(buysell_dir: str, cutoff: pd.Timestamp, *extra_dirs: str) -> pd.DataFrame:
+    """All realized-gain lots from Schwab lot-detail CSVs.
+
+    Scans `buysell_dir` plus any `extra_dirs` — realized-gain exports get
+    downloaded into accounts/ as often as into buysell/, and lots that only
+    exist there (TRGP, $1,061.90) were being missed entirely, understating
+    realized_gl/total_pl/roic_pct. Duplicate lots across directories are
+    dropped below.
 
     `opened` dates before `cutoff` are fudged to `cutoff` (DEFAULT_BUY handling
     lives in analytics.compute_cost_basis via the Cost_Basis_Source column —
     here we just pass the raw parsed dates through and let the caller decide).
     """
     lot_rows: list[dict] = []
-    for fn in sorted(os.listdir(buysell_dir)):
-        if not fn.endswith('.csv'):
+    for d in (buysell_dir, *extra_dirs):
+        if not d or not os.path.isdir(d):
             continue
-        lot_rows.extend(parse_realized_gain_csv(os.path.join(buysell_dir, fn)))
+        for fn in sorted(os.listdir(d)):
+            if not fn.endswith('.csv'):
+                continue
+            lot_rows.extend(parse_realized_gain_csv(os.path.join(d, fn)))
 
     sold_df = (pd.DataFrame(lot_rows) if lot_rows else pd.DataFrame(
         columns=['Symbol', 'Opened_Date', 'Closed_Date', 'Quantity',
@@ -196,8 +238,15 @@ def load_realized_lots(buysell_dir: str, cutoff: pd.Timestamp) -> pd.DataFrame:
         sold_df['Hold_Days'] = []
         return sold_df
 
+    # Dedup on Gain_Loss rather than Quantity. Quantity is restated by the
+    # broker after a split, so the same lot from an old and a re-downloaded
+    # export would look distinct and be counted twice. Gain_Loss is total
+    # dollars — split-invariant — while two genuinely different lots opened and
+    # closed on the same dates still differ by it. (Dropping the field entirely
+    # is not an option: it merges 4 real lots in the current data, losing $890
+    # of realized gain.)
     sold_df = sold_df.drop_duplicates(
-        subset=['Symbol', 'Opened_Date', 'Closed_Date', 'Quantity']).reset_index(drop=True)
+        subset=['Symbol', 'Opened_Date', 'Closed_Date', 'Gain_Loss']).reset_index(drop=True)
     sold_df['Buy_Date'] = sold_df['Opened_Date'].where(sold_df['Opened_Date'] >= cutoff, cutoff)
     sold_df['Sell_Date'] = sold_df['Closed_Date']
     sold_df['Hold_Days'] = (sold_df['Sell_Date'] - sold_df['Buy_Date']).dt.days

@@ -1,7 +1,7 @@
 """Fidelity position-export parsers (CSV 'Account Number' column, and xlsx Holdings)."""
 import pandas as pd
 
-from .common import CASH_ALIASES, clean_num
+from .common import CASH_ALIASES, account_key, clean_num
 
 
 def parse_positions_csv(filepath: str) -> dict[str, pd.DataFrame]:
@@ -25,7 +25,7 @@ def parse_positions_csv(filepath: str) -> dict[str, pd.DataFrame]:
 
     out: dict[str, pd.DataFrame] = {}
     for raw_acct, grp in df.groupby('Account Number'):
-        acct_num = str(int(str(raw_acct).strip()[-4:]))
+        acct_num = account_key(raw_acct)
         result = (
             grp[['Symbol', 'Quantity', 'Market_Value', 'Current_Price']]
             .dropna(subset=['Market_Value'])
@@ -44,7 +44,7 @@ def parse_holdings_xlsx(filepath: str) -> tuple[str, pd.DataFrame]:
     cols = pd.read_excel(filepath, nrows=1, skiprows=11, index_col=0)
     cols = cols.iloc[0].to_list()
     df = pd.read_excel(filepath, header=12, sheet_name=0, index_col=0, names=cols)
-    acct_num = str(int(df['Account Number'].dropna().iloc[0][-4:]))
+    acct_num = account_key(df['Account Number'].dropna().iloc[0])
 
     df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce')
     df['Current_Price'] = df['Price'].apply(clean_num)

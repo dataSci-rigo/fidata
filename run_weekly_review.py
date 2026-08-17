@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # anything here — importing it first means ai_review/telegram_alert below
 # see FI_BOT_ID/OWNER_CHAT_ID/ANTHROPIC_API_KEY correctly even though they
 # also read os.environ at their own import time. Don't reorder these imports.
-from run_pipeline import DATA_DIR, DATA_STATE_DIR, run as run_pipeline
+from run_pipeline import DATA_DIR, DATA_STATE_DIR, load_last_run
 from ai_review import weekly_deep_review
 from telegram_alert import send_telegram
 
@@ -29,9 +29,11 @@ def _sector_summary_by_gics(combined) -> list[dict]:
 
 
 if __name__ == '__main__':
-    # run_pipeline()'s run() already computes Sector/Cap_Tier/Vol_Tier and MPT
-    # metrics as part of its normal flow — reuse them rather than refetching.
-    result = run_pipeline()
+    # Read the last pipeline run's output rather than triggering another full
+    # refresh. Sector/Cap_Tier/Vol_Tier come straight from combined.json and
+    # the MPT metrics are recomputed in-process from historical.csv (~0.05s),
+    # so this needs no network at all.
+    result = load_last_run()
     combined, sold_df, metrics = result['combined'], result['sold_df'], result['metrics']
 
     sector_data = {'by_gics': _sector_summary_by_gics(combined)}

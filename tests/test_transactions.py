@@ -29,7 +29,10 @@ def test_parse_history_csv(fixtures_dir):
     jjj_buy = next(r for r in rows if r['Symbol'] == 'JJJ' and r['Action'] == 'BUY')
     assert jjj_buy['Quantity'] == 10
     assert jjj_buy['Price'] == 50.00
-    assert jjj_buy['Account'] == '0000'  # last 4 of 999900000
+    # last 4 of 999900000, leading zeros dropped by common.account_key — the
+    # position parsers have always done str(int(...)), so transactions have to
+    # match or nothing joins (see test_account_key_* in test_cost_basis.py).
+    assert jjj_buy['Account'] == '0'
 
 
 def test_parse_history_xlsx(fixtures_dir):

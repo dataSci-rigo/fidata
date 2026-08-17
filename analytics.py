@@ -14,6 +14,7 @@ from itertools import groupby as _groupby
 import numpy as np
 import pandas as pd
 
+import splits
 from parsers import clean_num, is_option, load_snapshot
 
 CUTOFF = pd.Timestamp('2023-01-01')
@@ -108,7 +109,7 @@ def compute_cost_basis(combined: pd.DataFrame, tx_df: pd.DataFrame,
             if not tx_df.empty else pd.DataFrame())
     first_buy = (buys.groupby('Symbol')['Date'].min()
                  if not buys.empty else pd.Series(dtype='datetime64[ns]'))
-    avg_cost = (buys.groupby('Symbol')
+    avg_cost = (buys.groupby('Symbol')[['Price', 'Quantity']]
                 .apply(lambda g: (g['Price'] * g['Quantity']).sum() / g['Quantity'].sum())
                 if not buys.empty else pd.Series(dtype=float))
 
@@ -118,8 +119,11 @@ def compute_cost_basis(combined: pd.DataFrame, tx_df: pd.DataFrame,
     source = pd.Series('transaction_history', index=combined.index)
     source[combined['First_Buy_Date'].isna()] = 'default_cutoff'
 
+    combined['Avg_Buy_Price'] = pd.to_numeric(combined['Avg_Buy_Price'], errors='coerce')
     missing_mask = combined['Avg_Buy_Price'].isna() & (combined.index != 'cash')
-    fallback = combined.loc[missing_mask].index.map(lambda s: fid_cost.get(s, float('nan')))
+    fallback = pd.Series(
+        [fid_cost.get(s, float('nan')) for s in combined.index[missing_mask]],
+        index=combined.index[missing_mask], dtype=float)
     combined.loc[missing_mask, 'Avg_Buy_Price'] = fallback
     used_fallback = missing_mask & combined['Avg_Buy_Price'].notna()
     source[used_fallback] = 'brokerage_fallback'
@@ -248,6 +252,35 @@ def collect_snapshots(past_dir: str, accounts_dir: str) -> dict:
                 if key not in snap_map or len(df) > len(snap_map[key]):
                     snap_map[key] = df
     return snap_map
+
+
+def normalize_snapshots(snap_map: dict, split_table: dict | None) -> dict:
+    """Restate every snapshot's Quantity (and Price) into today's share terms.
+
+    Without this, a split between two snapshots is indistinguishable from a
+    huge unexplained position change: infer_missing_trades diffs 22 -> 440 and,
+    since a split is not a transaction (`_parse_action` returns None for it),
+    finds nothing in tx_df to explain the delta and fabricates a
+    `BUY 418 @ post-split price`. That phantom is then folded into tx_df and
+    recomputed into cost basis and capital deployed.
+
+    Prices are divided by the same factor so Price x Quantity — the dollars the
+    snapshot actually represents — is unchanged.
+    """
+    if not split_table:
+        return snap_map
+    out = {}
+    for (acct, snap_date), df in snap_map.items():
+        df = df.copy()
+        factors = pd.Series(
+            [splits.factor_since(split_table, str(sym), snap_date) for sym in df.index],
+            index=df.index, dtype=float)
+        if (factors != 1.0).any():
+            df['Quantity'] = df['Quantity'] * factors
+            if 'Price' in df.columns:
+                df['Price'] = df['Price'] / factors
+        out[(acct, snap_date)] = df
+    return out
 
 
 def infer_missing_trades(snap_map: dict, tx_df: pd.DataFrame, hist_df: pd.DataFrame,

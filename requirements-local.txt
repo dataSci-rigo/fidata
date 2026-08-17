@@ -1,0 +1,15 @@
+# Local-workstation extras — deliberately NOT in requirements.txt.
+#
+# env_sync.py install_reqs reads requirements.txt to build the VM venv, so
+# keeping these separate keeps a browser UI and a TUI off the headless VM.
+# That's the same local/VM boundary FIDATA_LOCAL enforces at runtime.
+#
+#   pip install -r requirements-local.txt
+#
+# flask            -> local_server.py (the local-only web viewer)
+# rich             -> viewer.py (terminal viewer)
+# prompt_toolkit   -> viewer.py; both were undeclared and viewer.py could not
+#                     actually run in a fresh env until this file existed.
+flask==3.1.3
+rich==14.3.0
+prompt_toolkit==3.0.53

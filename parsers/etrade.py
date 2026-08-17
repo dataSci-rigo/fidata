@@ -4,7 +4,7 @@ import re
 
 import pandas as pd
 
-from .common import CASH_ALIASES
+from .common import CASH_ALIASES, account_key
 
 
 def detect(first_line: str) -> bool:
@@ -24,7 +24,7 @@ def parse_account_summary(filepath: str, data_dir: str) -> tuple[str | None, pd.
         raw = f.readlines()
 
     match = re.search(r'-(\d+)', raw[2])
-    acct_num = match.group(1) if match else os.path.basename(filepath)
+    acct_num = account_key(match.group(1)) if match else os.path.basename(filepath)
 
     header_idx = next(
         (i for i, line in enumerate(raw) if line.strip().startswith('Symbol,Last Price')),

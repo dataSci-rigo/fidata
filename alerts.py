@@ -23,14 +23,24 @@ def save_snapshot(combined: pd.DataFrame, path: str) -> None:
 
 
 def detect_big_moves(combined: pd.DataFrame, prev_snapshot_file: str,
-                      threshold: float = BIG_MOVE_PCT) -> list[str]:
+                      threshold: float = BIG_MOVE_PCT,
+                      split_table: dict | None = None) -> list[str]:
     """Compare combined['Current_Price'] against the last saved run's prices.
     Returns one alert message per symbol whose price moved beyond `threshold`
     since the last pipeline run (this runs 3x/day, so "since last check" —
-    not a daily figure — by design)."""
+    not a daily figure — by design).
+
+    `split_table` restates the stored price into today's share terms first.
+    Without it, the first run after an ex-date reads a 20:1 split as
+    '📉 KORU: -95.0%' — a false alarm big enough to drown the real ones, and
+    exactly the sort of noise that trains you to ignore the alerts.
+    """
     prev = load_last_snapshot(prev_snapshot_file)
     if prev is None:
         return []
+    snap_date = None
+    if os.path.exists(prev_snapshot_file):
+        snap_date = pd.Timestamp(os.path.getmtime(prev_snapshot_file), unit='s')
 
     messages = []
     eq = combined[combined.index != 'cash']
@@ -41,6 +51,13 @@ def detect_big_moves(combined: pd.DataFrame, prev_snapshot_file: str,
         cur_price = eq.loc[sym, 'Current_Price']
         if pd.isna(prev_price) or pd.isna(cur_price) or prev_price == 0:
             continue
+        if split_table:
+            import splits as _splits
+            factor = _splits.factor_since(split_table, str(sym), snap_date)
+            if factor != 1.0:
+                prev_price = prev_price / factor
+                if prev_price == 0:
+                    continue
         pct_change = (cur_price - prev_price) / prev_price
         if abs(pct_change) >= threshold:
             direction = '📈' if pct_change > 0 else '📉'
@@ -89,9 +106,10 @@ def detect_upcoming_earnings(earn_cache: pd.DataFrame, combined: pd.DataFrame,
 
 
 def detect_alerts(combined: pd.DataFrame, prev_snapshot_file: str,
-                   earn_cache: pd.DataFrame, alerted_earnings_file: str) -> list[str]:
+                   earn_cache: pd.DataFrame, alerted_earnings_file: str,
+                   split_table: dict | None = None) -> list[str]:
     """All v1 alert messages: big moves + upcoming earnings."""
     messages = []
-    messages.extend(detect_big_moves(combined, prev_snapshot_file))
+    messages.extend(detect_big_moves(combined, prev_snapshot_file, split_table=split_table))
     messages.extend(detect_upcoming_earnings(earn_cache, combined, alerted_earnings_file))
     return messages

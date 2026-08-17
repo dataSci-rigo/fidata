@@ -513,3 +513,158 @@ Fixed for real this time:
 the pre-fix `run_pipeline.py`. Since it's driven by `EnvironmentFile=` under systemd, Telegram
 already works fine there regardless; the fix mainly matters for manual/local runs. Next
 `git push` + `env_sync.py git_pull fidata` will bring the VM copy current.
+
+### Update (2026-08-13): two live data-correctness bugs, a 3.4x faster run, and a
+### local-only web viewer
+
+Restored the project onto a new machine (see the plan file), then audited it. Two bugs
+were corrupting numbers in daily use — both reproduced against real data, not inferred:
+
+- **Fidelity account IDs parsed as floats.** `parsers/transactions.py` did
+  `str(row['Account Number']).strip()[-4:]` on a column pandas types `float64`, so
+  `236369828.0` became `'28.0'`, matching no position account. Two consequences, both
+  active: `Accounts_History.csv` overlapped the per-account `History_for_Account_*.csv`
+  exports and **45 of 393 trades were double-counted**, and `infer_missing_trades` could
+  not cross-reference known trades so it re-invented ~$21.8K of BUYs already on file.
+  Fixed with a single `parsers/common.account_key()` used by every parser (positions and
+  transactions), plus a dedupe on `(Symbol, Date, Action, Quantity, Price)` in
+  `load_transactions`. It drops leading zeros deliberately — that reproduces what
+  `fidelity.py` always emitted, so `accounts.json` keys and the `ACC_*` map still work.
+  Net effect: `Avg_Buy_Price` moved on **17 symbols** (SG +23.6%, VRT −18.5%, RDDT
+  −13.1%, SOXL −12.6%); both loud ones now reconcile exactly to the raw broker rows.
+  ROIC 13.43% → 14.27%. E*Trade's `'0898'` vs Fidelity's `'898'` — the same account —
+  now agree too.
+- **`historical.csv` had stopped appending.** `enrich.py` did
+  `hist_df[sym] = hist_df[sym].combine_first(new_close)`; `DataFrame.__setitem__` aligns
+  the RHS to the *existing* index, so every date not already present was dropped — and
+  since `fetch_start = last_date + 1 day`, that was **100% of every incremental fetch**.
+  The file was rewritten identically each run while `Gain_3m`/`Sharpe_*`/`Ann_Vol`/
+  `Beta`/MPT silently froze at the last from-scratch rebuild. It only looked healthy
+  because the 08-11 clean-slate rebuild sent every symbol down the working `else` branch.
+  Fixed by reindexing first in both branches.
+- **Realized-gain files in `accounts/`** are now read by `load_realized_lots` (it takes
+  extra dirs), and `detect_format` gained a `'realized_gain'` branch so they stop
+  printing "unrecognised format" three times a run. Recovered 2 TRGP lots worth
+  **$1,061.90** of realized gain that no `buysell/` file contained.
+
+**Tests: 14 → 74.** `tests/test_export_schema.py` pins the full 35-column `combined.json`
+schema — including a check against the *live* pipeline output, which is what actually
+catches the recurring "column computed then never merged" bug (Sector/Cap_Tier/Vol_Tier,
+then Beta/Alpha_pct). `tests/test_cost_basis.py` covers account-key normalization, the
+dedupe, and every `Cost_Basis_Source` branch. `tests/test_web_app.py` walks every viewer
+route twice — real data, then empty directories.
+
+**Runtime 3min → 53s, with zero 404s in the log.** It was ~400-500 sequential yfinance
+round trips; the numeric core measures under 2s, so every win was in call count.
+Removed the `upgrades_downgrades` fetch entirely (84 calls/run, result discarded by every
+caller since nothing ever wrote `upgrades.csv`); replaced the stale hand-maintained
+`DEFAULT_ETF_SKIP` with a `Quote_Type != 'EQUITY'` gate off the sector cache (11 held
+ETFs were missing from the list — that was the source of the SOXL/SPMO/VT 404s);
+batched `refresh_historical` into one `yf.download` per distinct start date instead of
+122 `Ticker.history()` calls. Also stopped `classify_sectors` caching its own failures —
+one transient 404 used to pin a symbol to `Sector=Unknown` permanently (QVMT was stuck
+that way), and the placeholders are now evicted on load so they retry.
+
+**Review jobs no longer re-run the pipeline.** `run_daily_review.py` and
+`run_weekly_review.py` each called `run_pipeline.run()` in full, making the systemd
+schedule 5 complete refreshes/day (6 on Sunday), each re-sending alerts and rewriting
+`last_run_snapshot.csv`. Both now use `run_pipeline.load_last_run()`, which rebuilds the
+same dict from disk in ~1.5s with no network (MPT metrics recomputed in-process from
+`historical.csv`; it reproduces `mpt_summary.json` exactly). `run_pipeline` writes
+`data/last_alerts.json` so the daily summary still knows what was sent.
+
+**`local_server.py` — local-only web viewer.** Flask, run on demand, read-only over
+whatever the last pipeline run left on disk; it never fetches, never triggers the
+pipeline, and never sends Telegram, so opening it cannot perturb the scheduled jobs'
+state. Nine pages (overview, holdings, accounts, sectors, flags, analysts, risk, capital,
+chart) plus `/review` for the weekly Claude reports. The efficient-frontier and
+correlation PNGs are served from a two-entry allowlist — the repo root holds `.env` and
+every broker export, so it must never be a Flask static folder — while the per-symbol
+price/drawdown chart renders on demand via the new
+`plotting.build_price_drawdown_figure()`, which `viewer_app.py` now shares (its `fig=None`
+parameter exists so the Tk canvas can pass in its persistent Figure). That port also
+fixed the chart's hardcoded `rf = 0.043`, which disagreed with the live rate everywhere
+else. `COL_FMTS` moved into `app_data_io.py` and gained the ~15 columns it was missing.
+
+Gated on `FIDATA_LOCAL=1`, checked both in `create_app()` and in `__main__` (exit 2 with
+a message, nothing bound). **Do not put `FIDATA_LOCAL` in `~/code20/.env.master`** —
+`env_sync.py push_env` would propagate it to the VM and defeat the gate. Flask/rich/
+prompt_toolkit live in a separate `requirements-local.txt` so `install_reqs` leaves the
+VM venv alone; that also fixes `viewer.py`, which imported `rich`/`prompt_toolkit`
+without ever declaring them and could not run in a fresh env.
+
+**Known, not fixed — stale share counts after a split.** The broker exports are from
+2026-06-18 and KORU did a 20:1 forward split on 2026-07-15. The pipeline keeps the export's
+share count and multiplies by the live price, so KORU shows $473 instead of ~$9,458 —
+the portfolio is understated by about **$8,985**. It's the only affected holding today.
+Fresh broker exports fix it; a split guard (compare `yf.Ticker(s).splits` after the export
+date against the held quantity) would stop it recurring silently.
+
+### Update (2026-08-13b): stock splits
+
+Splits hit this book about **four times a year** — 13 events across 12 symbols since 2023
+(NVDA, AVGO, NFLX, WMT, IBKR, VUG, MEXX, NVO, HTHIY, MHVIY, OPPJ, and KORU twice, one of
+those a 1:10 reverse). Brokers restate share counts, so anything already inside an export is
+consistent; the exposure is the gap between downloading exports and now. With exports ~2
+months old that is roughly **0.7 splits per refresh cycle**. There was no split handling
+anywhere — `auto_adjust=True` was the only split-aware line, and it never reached cached rows.
+
+One was live: **KORU 20:1 on 2026-07-15**, 27 days after the exports holding it, so a stale
+22-share count was multiplied by the live post-split price — **$472.89 shown against a true
+$9,438**, and a 0.069% portfolio weight instead of 1.350%.
+
+**The "just re-download your exports" advice in the previous update was wrong** — it would
+have made things worse, in two ways, both now demonstrated:
+
+- **Cost basis would have exploded.** All 13 KORU buys are recorded pre-split. Today's error
+  self-cancels (pre-split price x pre-split quantity ≈ correct dollars); fixing only the
+  quantity gives `440 x $662.30 = $291,412`.
+- **A phantom trade would have been fabricated.** A split is not a transaction
+  (`_parse_action` returns None), so `infer_missing_trades` books the quantity jump as a BUY.
+  Verified by simulating a post-split export against the real snapshots: the old path produced
+  a spurious `BUY 76 KORU @ $55.05` on top of the genuine trade — **$8,596 of inferred capital
+  against a true $4,413**. The new path produces exactly one correct row.
+
+**Design — `splits.py`.** Every stale input carries a date, so each is normalized into today's
+share terms as it enters the pipeline. `factor_since(table, sym, date)` is the cumulative ratio
+after `date` (reverse splits compose naturally, being < 1), applied at five boundaries:
+positions (stale export quantity), snapshots (before `infer_missing_trades` diffs them),
+transactions (pre-split fills, with `Price x Quantity` preserved so `capital_deployed` dollars
+don't move), `historical.csv` (drop and refetch a symbol's column rather than appending across
+a split — `combine_first` never re-adjusts cached rows, so the old path would have grown a
+-95% cliff at the next split), and `alerts.detect_big_moves` (an ex-date otherwise reads as
+`📉 KORU: -95.0%`).
+
+**Safety.** Auto-adjusting share counts is only safe if a bad adjustment fails loudly, so every
+adjustment is gated on the export's own arithmetic: a broker export is internally consistent,
+so `market_value / (quantity x split-adjusted close on the export date)` measures the ratio
+directly. It must agree with the reported ratio, and a measured ~1.0 means the export was
+already restated — that case is skipped with a message rather than silently 20x-ing a correct
+position. Idempotence is verified: re-running gives 440 shares, never 8,800, and a
+freshly-downloaded post-split export is correctly left alone.
+
+**Export dating.** Filename date (7 accounts) → an in-file `as of` header (acct 898) → price
+matching against `historical.csv` for E*Trade's `PortfolioDownload*.csv`, which carries no date
+anywhere and whose mtime is meaningless after copying between machines (that recovers
+2026-06-04 for accts 4919/1297). Unknown dates are treated as fresh: guessing too new is a
+no-op, guessing too old double-applies a split.
+
+**Feed.** `enrich._download_closes` now passes `actions=True`, so the split table rides the
+price download at zero extra round trips, cached to `data/splits.csv`. One caveat found in
+testing: the incremental refresh only fetches dates *after* the last cached row, so its window
+can never contain a split that already happened — coverage is therefore seeded once back to
+`CUTOFF` (`splits.needs_seed` / `enrich.seed_splits`) and maintained incrementally after.
+
+**Also fixed while in the blast radius:** the realized-lot dedup key used `Quantity`, which a
+broker restates after a split — switched to the split-invariant `Gain_Loss`, which additionally
+recovered two genuinely distinct AVGO lots (cost $139.85 vs $139.44) the old key had merged,
+worth **$215.70** of realized gain. `load_positions` now orders by export date rather than
+mtime, so a re-downloaded older export can't silently override a newer one. `COL_FMTS`
+formats quantities without truncating the fractional shares splits produce. The single-file
+parser dispatch moved into `parsers.parse_file` so `load_positions` and `splits.export_dates`
+share it.
+
+**Result:** KORU 22 → 440 shares, `$472.89` → `$9,438.04`, `Avg_Buy_Price` $724.96 → $36.25
+with cost basis unchanged at $15,949 (the dollars were always right), unrealized G/L
+-$15,476 → -$6,511, portfolio weight 0.069% → 1.350%. The other 11 splits all predate their
+exports and are correctly inert (`Split_Factor == 1.0`). Tests 74 → **123**.

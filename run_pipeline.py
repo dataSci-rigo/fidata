@@ -38,13 +38,15 @@ import pandas as pd
 
 from parsers import load_positions
 from parsers.transactions import load_realized_lots, load_transactions
+import splits
 from analytics import (
     CUTOFF, DEFAULT_BUY, capital_performance, closed_positions_summary,
-    collect_snapshots, compute_cost_basis, correlation_matrix,
+    collect_snapshots, compute_cost_basis, correlation_matrix, normalize_snapshots,
     efficient_frontier, export_app_data, high_correlation_pairs, infer_missing_trades,
     load_fallback_cost_basis, merge_accounts, mpt_metrics,
 )
 from enrich import (
+    seed_splits,
     classify_sectors, earnings_and_recommendations, refresh_historical,
     risk_free_rate, symbol_metrics,
 )
@@ -65,7 +67,9 @@ SECTOR_CSV = os.path.join(DATA_DIR, 'sectors.csv')
 UNKNOWN_FILE = os.path.join(DATA_DIR, 'unknown_trades.csv')
 UPGRADES_FILE = os.path.join(DATA_DIR, 'upgrades.csv')
 LAST_SNAPSHOT_FILE = os.path.join(DATA_STATE_DIR, 'last_run_snapshot.csv')
+LAST_ALERTS_FILE = os.path.join(DATA_STATE_DIR, 'last_alerts.json')
 ALERTED_EARNINGS_FILE = os.path.join(DATA_STATE_DIR, 'alerted_earnings.json')
+SPLITS_FILE = os.path.join(DATA_STATE_DIR, splits.CACHE_NAME)
 EFFICIENT_FRONTIER_PNG = os.path.join(DATA_DIR, 'efficient_frontier.png')
 CORRELATION_HEATMAP_PNG = os.path.join(DATA_DIR, 'correlation_heatmap.png')
 MPT_SUMMARY_FILE = os.path.join(DATA_STATE_DIR, 'mpt_summary.json')
@@ -82,14 +86,47 @@ def run() -> dict:
     os.makedirs(DATA_STATE_DIR, exist_ok=True)
 
     accounts = load_positions(ACCOUNTS_DIR, exclude=EXCLUDE_FILES)
+
+    # Splits: broker exports are restated by the broker, so anything already in
+    # an export is consistent — the exposure is any split between the export
+    # date and now. Prices are refreshed live, so a stale share count silently
+    # produces stale_qty x post-split price. Everything below is normalized
+    # into today's share terms before it is used. See splits.py.
+    split_table = splits.load_table(SPLITS_FILE)
+    split_meta = splits.load_meta(SPLITS_FILE)
+    all_symbols = [str(s) for s in merge_accounts(accounts).index if str(s) != 'cash']
+
+    # Coverage must reach back to the oldest thing being normalized — the
+    # cost-basis cutoff — because the incremental price refresh only downloads
+    # dates *after* the last cached one, so its window can never contain a
+    # split that already happened. That is exactly the case that matters.
+    to_seed = splits.needs_seed(split_meta, all_symbols, CUTOFF)
+    if to_seed:
+        split_table = seed_splits(to_seed, CUTOFF.date(), split_table)
+        split_meta = {'covered_from': str(CUTOFF.date()),
+                      'symbols': sorted(set(split_meta.get('symbols') or []) | set(all_symbols))}
+
+    hist_df, split_table = refresh_historical(all_symbols, HIST_FILE,
+                                               split_table=split_table)
+    splits.save_table(split_table, SPLITS_FILE)
+    splits.save_meta(split_meta, SPLITS_FILE)
+
+    as_of = splits.export_dates(ACCOUNTS_DIR, accounts, hist_df, split_table)
+    accounts, split_factors, split_msgs = splits.adjust_positions(
+        accounts, as_of, split_table, hist_df)
+    for m in split_msgs:
+        print(f'SPLIT: {m}')
+
     combined = merge_accounts(accounts)
 
-    tx_df = load_transactions(BUYSELL_DIR)
-    sold_df = load_realized_lots(BUYSELL_DIR, CUTOFF)
+    # Transactions and snapshots get the same treatment: pre-split fills would
+    # otherwise average against post-split prices, and a split between two
+    # snapshots looks exactly like a large unexplained BUY.
+    tx_df = load_transactions(BUYSELL_DIR, split_table=split_table)
+    sold_df = load_realized_lots(BUYSELL_DIR, CUTOFF, ACCOUNTS_DIR)
     fid_cost = load_fallback_cost_basis(ACCOUNTS_DIR)
     combined = compute_cost_basis(combined, tx_df, fid_cost, CUTOFF, DEFAULT_BUY)
 
-    hist_df = refresh_historical(combined.index, HIST_FILE)
     rf_annual = risk_free_rate()
 
     metrics_df = symbol_metrics(combined, hist_df, rf_annual)
@@ -106,7 +143,7 @@ def run() -> dict:
     for col in ('Quote_Type', 'Sector', 'MarketCap', 'Cap_Tier', 'Vol_Tier'):
         combined.loc[combined.index != 'cash', col] = sector_df[col]
 
-    snap_map = collect_snapshots(PAST_DIR, ACCOUNTS_DIR)
+    snap_map = normalize_snapshots(collect_snapshots(PAST_DIR, ACCOUNTS_DIR), split_table)
     inferred = infer_missing_trades(snap_map, tx_df, hist_df, UNKNOWN_FILE)
     if not inferred.empty:
         tx_df = pd.concat([tx_df, inferred], ignore_index=True).sort_values('Date').reset_index(drop=True)
@@ -121,6 +158,12 @@ def run() -> dict:
     # combined.json instead of only existing inside this function's return
     # value. The notebook's cell 15 already did this merge; run_pipeline.py
     # previously didn't, so every headless run silently dropped these columns.
+    #
+    # Split_Factor is a visible marker: 1.0 for the untouched majority, the
+    # applied ratio for any row whose share count came from us rather than
+    # straight off the broker export.
+    combined['Split_Factor'] = [float(split_factors.get(str(s), 1.0)) for s in combined.index]
+
     metrics = mpt_metrics(combined, hist_df, rf_annual)
     ef = None
     if len(metrics['symbols']) >= 2 and 'beta_alpha' in metrics:
@@ -158,14 +201,84 @@ def run() -> dict:
     with open(PORTFOLIO_EXTRAS_FILE, 'w') as f:
         json.dump(extras, f, indent=2, default=str)
 
-    messages = detect_alerts(combined, LAST_SNAPSHOT_FILE, earn_cache, ALERTED_EARNINGS_FILE)
+    messages = detect_alerts(combined, LAST_SNAPSHOT_FILE, earn_cache,
+                             ALERTED_EARNINGS_FILE, split_table=split_table)
+    # A split means the export is stale — worth telling you, since the fix is
+    # to re-download it and only you can do that.
+    messages.extend(f'⚠ {m}' for m in split_msgs)
     for msg in messages:
         send_telegram(msg)
+
+    # Persist what was sent so run_daily_review.py can report on this run
+    # without re-running the whole pipeline for it.
+    with open(LAST_ALERTS_FILE, 'w') as f:
+        json.dump({'run_at': pd.Timestamp.now().isoformat(), 'messages': messages}, f, indent=2)
 
     save_snapshot(combined, LAST_SNAPSHOT_FILE)
 
     return {'combined': combined, 'hist_df': hist_df, 'tx_df': tx_df, 'sold_df': sold_df,
             'earn_cache': earn_cache, 'alerts_sent': messages,
+            'metrics': metrics, 'rf_annual': rf_annual}
+
+
+def load_last_run() -> dict:
+    """Same shape as run(), rebuilt from what the last run left on disk.
+
+    The review jobs used to call run() themselves, so the systemd schedule was
+    doing 5 full yfinance-heavy refreshes a day (6 on Sunday) instead of 3 —
+    each one also re-sending alerts and rewriting last_run_snapshot.csv, which
+    made "alerts since last check" mean something different depending on which
+    job happened to run. Everything below is read from local files or computed
+    in-process; there is no network call in this path.
+
+    Raises FileNotFoundError if the pipeline has never run.
+    """
+    combined_path = os.path.join(APP_DATA, 'combined.json')
+    if not os.path.exists(combined_path):
+        raise FileNotFoundError(
+            f'{combined_path} not found — run run_pipeline.py before a review job')
+
+    with open(combined_path) as f:
+        combined = pd.DataFrame(json.load(f)).set_index('Symbol')
+    for col in combined.columns:
+        if col not in ('Cost_Basis_Source', 'Quote_Type', 'Sector', 'Cap_Tier',
+                       'Vol_Tier', 'Consensus', 'First_Buy_Date'):
+            combined[col] = pd.to_numeric(combined[col], errors='ignore')
+
+    if os.path.exists(EARN_FILE):
+        earn_cache = pd.read_csv(EARN_FILE, index_col='Symbol', parse_dates=['Next_Earnings'])
+    else:
+        earn_cache = pd.DataFrame(columns=['Next_Earnings', 'EPS_Est',
+                                            'Rev_Est_High', 'Rev_Est_Low'])
+        earn_cache.index.name = 'Symbol'
+
+    hist_df = pd.read_csv(HIST_FILE, index_col=0, parse_dates=True) if os.path.exists(HIST_FILE) \
+        else pd.DataFrame()
+
+    # rf comes off the last run's summary rather than ^IRX, to keep this path
+    # offline; the fallback matches enrich.risk_free_rate()'s own.
+    rf_annual = 0.043
+    if os.path.exists(MPT_SUMMARY_FILE):
+        with open(MPT_SUMMARY_FILE) as f:
+            rf_annual = json.load(f).get('rf_annual', rf_annual)
+
+    metrics = {}
+    if not hist_df.empty:
+        try:
+            metrics = mpt_metrics(combined, hist_df, rf_annual)
+        except Exception as e:
+            print(f'WARNING: could not recompute MPT metrics from cache: {e}')
+
+    alerts_sent = []
+    if os.path.exists(LAST_ALERTS_FILE):
+        with open(LAST_ALERTS_FILE) as f:
+            alerts_sent = json.load(f).get('messages', [])
+
+    split_table = splits.load_table(SPLITS_FILE)
+    return {'combined': combined, 'hist_df': hist_df,
+            'tx_df': load_transactions(BUYSELL_DIR, split_table=split_table),
+            'sold_df': load_realized_lots(BUYSELL_DIR, CUTOFF, ACCOUNTS_DIR),
+            'earn_cache': earn_cache, 'alerts_sent': alerts_sent,
             'metrics': metrics, 'rf_annual': rf_annual}
 
 

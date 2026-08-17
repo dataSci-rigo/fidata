@@ -22,7 +22,21 @@ DATA_DIR  = os.path.dirname(os.path.abspath(__file__))
 APP_DATA  = os.path.join(DATA_DIR, 'app_data')
 HIST_FILE = os.path.join(DATA_DIR, 'historical.csv')
 
-from app_data_io import load_json, fmt
+from app_data_io import COL_FMTS, load_json, fmt
+
+MPT_SUMMARY_FILE = os.path.join(DATA_DIR, 'data', 'mpt_summary.json')
+
+
+def _rf_annual(default: float = 0.043) -> float:
+    """The pipeline's live risk-free rate, falling back to the same constant
+    enrich.risk_free_rate() uses. This chart used to hardcode 0.043 while the
+    rest of the app ran on the real rate."""
+    import json
+    try:
+        with open(MPT_SUMMARY_FILE) as f:
+            return float(json.load(f).get('rf_annual', default))
+    except Exception:
+        return default
 
 # ── Theme ──────────────────────────────────────────────────────────────────────
 BG      = '#1e1e2e'
@@ -40,39 +54,8 @@ FT_B    = ('Segoe UI', 11, 'bold')
 FT_H    = ('Segoe UI', 13, 'bold')
 FT_BIG  = ('Segoe UI', 20, 'bold')
 
-# ── Column format map (by column name) ────────────────────────────────────────
-COL_FMTS = {
-    'Quantity':           'int',
-    'Current_Price':      '$',
-    'Market_Value':       '$',
-    'Total_Market_Value': '$',
-    'Trailing_PE':        'f2',
-    'Forward_PE':         'f2',
-    'Ann_Vol':            'pct',   # stored as fraction e.g. 0.289
-    'Sharpe_1yr':         'f2',
-    'Sharpe_6m':          'f2',
-    'Sharpe_3m':          'f2',
-    'Gain_1yr':           '%',     # stored as percentage e.g. 47.1
-    'Gain_6m':            '%',
-    'Gain_3m':            '%',
-    'Target_Mean':        '$',
-    'Target_Median':      '$',
-    'Target_High':        '$',
-    'Target_Low':         '$',
-    'Target_Upside':      '%',
-    'Target_Spread':      '%',
-    'Num_Analysts':       'int',
-    'EPS_Est':            '$',
-    'Rev_Est_High':       '$auto',
-    'Rev_Est_Low':        '$auto',
-    'Strong_Buy':         'int',
-    'Buy':                'int',
-    'Hold':               'int',
-    'Sell':               'int',
-    'Strong_Sell':        'int',
-    'currentPriceTarget': '$',
-    'MarketCap':          '$auto',
-}
+# Column format map lives in app_data_io.COL_FMTS so this viewer and the
+# local web viewer share one definition.
 
 
 class App(tk.Tk):
@@ -422,87 +405,15 @@ class App(tk.Tk):
                     f'Only {len(prices)} points in selected range (need ≥ 5)')
                 return
 
-            daily_ret = prices.pct_change().dropna()
-            std       = daily_ret.std()
-
-            # Annualized vol (fraction)
-            ann_vol = std * np.sqrt(252) if std > 0 else 0.0
-
-            # Sharpe for the period
-            rf_daily = 0.043 / 252
-            sharpe   = ((daily_ret.mean() - rf_daily) / std * np.sqrt(252)
-                        if std > 0 else 0.0)
-
-            # Max drawdown (fraction → display as %)
-            roll_max = prices.cummax()
-            dd       = (prices - roll_max) / roll_max
-            max_dd   = dd.min()
-
-            # Position context for dollar vol
-            pos    = positions.get(sym, {})
-            qty    = float(pos.get('Quantity') or 0)
-            p_last = float(prices.iloc[-1])
-            pos_mv = qty * p_last
-            # Dollar vol: expected annual price swing on the position
-            dollar_vol = pos_mv * ann_vol
-
-            # ── Draw ──────────────────────────────────────────────────────────
-            fig.clear()
-            gs  = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.06)
-            ax1 = fig.add_subplot(gs[0])
-            ax2 = fig.add_subplot(gs[1], sharex=ax1)
-
-            for ax in (ax1, ax2):
-                ax.set_facecolor(PANEL)
-                ax.tick_params(colors=DIMTEXT, labelsize=8)
-                for sp in ax.spines.values():
-                    sp.set_color('#3a3a5e')
-                ax.grid(True, color='#3a3a5e', linewidth=0.4, alpha=0.6)
-
-            # Price
-            ax1.plot(prices.index, prices.values,
-                     color=BLUE, lw=1.5, zorder=3)
-            ax1.fill_between(prices.index, prices.values, prices.min(),
-                             color=BLUE, alpha=0.07)
-            ax1.set_ylabel('Price ($)', color=TEXT, fontsize=9)
-            ax1.yaxis.set_major_formatter(
-                mticker.FuncFormatter(lambda x, _: f'${x:,.0f}'))
-            ax1.set_title(
-                f'{sym}  ·  {t0.strftime("%b %d %Y")} → {t1.strftime("%b %d %Y")}',
-                color=TEXT, fontsize=12, fontweight='bold', pad=6)
-
-            # Metrics annotation
-            qty_line = (f'Qty {int(qty):,}   MV ${pos_mv:,.0f}\n'
-                        if qty else '')
-            dv_part  = (f'   (${dollar_vol:,.0f}/yr)' if pos_mv > 0 else '')
-            box_text = (
-                f'{qty_line}'
-                f'Ann Vol  {ann_vol*100:.1f}%{dv_part}\n'
-                f'Sharpe   {sharpe:.2f}\n'
-                f'Max DD   {max_dd*100:.1f}%'
-            )
-            ax1.text(0.02, 0.97, box_text,
-                     transform=ax1.transAxes, va='top',
-                     fontsize=9, color=TEXT, family='monospace',
-                     bbox=dict(boxstyle='round,pad=0.5',
-                               facecolor='#1e1e2e',
-                               edgecolor=ACCENT, alpha=0.92))
-
-            # Drawdown
-            dd_pct = dd * 100
-            ax2.fill_between(dd_pct.index, dd_pct.values, 0,
-                             where=dd_pct.values < 0,
-                             color=RED, alpha=0.45)
-            ax2.plot(dd_pct.index, dd_pct.values, color=RED, lw=0.9)
-            ax2.axhline(0, color=DIMTEXT, lw=0.5)
-            ax2.set_ylabel('Drawdown %', color=TEXT, fontsize=9)
-            ax2.set_ylim(top=0)
-            ax2.yaxis.set_major_formatter(
-                mticker.FuncFormatter(lambda x, _: f'{x:.0f}%'))
-            ax2.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
-
-            fig.autofmt_xdate(rotation=25, ha='right')
-            fig.tight_layout(h_pad=0.3)
+            # Drawing lives in plotting.build_price_drawdown_figure so the web
+            # viewer renders the identical chart. `fig` is this canvas's own
+            # persistent Figure — passed in to be cleared and redrawn in place.
+            # Imported here, not at module scope, so this file still loads when
+            # matplotlib is absent (the _MPL guard above already handles that).
+            from plotting import build_price_drawdown_figure
+            qty = float(positions.get(sym, {}).get('Quantity') or 0)
+            build_price_drawdown_figure(prices, sym, qty=qty,
+                                        rf_annual=_rf_annual(), fig=fig)
             canvas.draw()
 
         sym_cb.bind('<<ComboboxSelected>>', lambda _e: _plot())

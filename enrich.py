@@ -13,6 +13,8 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
+import splits
+
 warnings.filterwarnings('ignore')
 
 _TICKER_RE = re.compile(r'^[A-Z]{1,6}(-[A-Z])?$')
@@ -84,10 +86,93 @@ def risk_free_rate() -> float:
         return 0.043
 
 
-def refresh_historical(combined_index, hist_file: str, years: int = 10) -> pd.DataFrame:
-    """Load historical.csv, fetch only the missing tail per symbol, save back."""
+def _download_closes(symbols: list[str], start: str, end: str
+                      ) -> tuple[dict[str, pd.Series], dict[str, pd.Series]]:
+    """Batched close-price fetch. Returns (closes, splits), each keyed by
+    portfolio symbol, omitting symbols that came back with nothing.
+
+    yfinance hands back flat columns for a single ticker and a MultiIndex for
+    several, and it keys results by the *yahoo* symbol (BRK-B) rather than the
+    portfolio one (BRK/B), so both are normalized here.
+
+    `actions=True` makes the same request also carry the split table, so split
+    detection costs zero extra round trips. Note yf.download defaults
+    ignore_tz=True (naive index) while Ticker.splits is exchange-tz-aware —
+    splits.py normalizes either way.
+    """
+    if not symbols:
+        return {}, {}
+    ymap = {yf_symbol(s): s for s in symbols}
+    try:
+        raw = yf.download(list(ymap), start=start, end=end, auto_adjust=True,
+                          actions=True, progress=False, threads=True,
+                          group_by='column')
+    except Exception as e:
+        print(f'WARNING (history batch {start}, {len(symbols)} symbols): {e}')
+        return {}, {}
+    if raw is None or raw.empty:
+        return {}, {}
+
+    if isinstance(raw.columns, pd.MultiIndex):
+        if 'Close' not in raw.columns.get_level_values(0):
+            return {}, {}
+        closes = raw['Close']
+    else:
+        if 'Close' not in raw.columns:
+            return {}, {}
+        closes = raw[['Close']]
+        closes.columns = list(ymap)
+
+    out: dict[str, pd.Series] = {}
+    for ysym, sym in ymap.items():
+        if ysym not in closes.columns:
+            continue
+        s = closes[ysym].dropna()
+        if s.empty:
+            continue
+        s = s.rename(sym)
+        idx = pd.DatetimeIndex(s.index)
+        if idx.tz is not None:
+            idx = idx.tz_localize(None)
+        s.index = idx.normalize()
+        out[sym] = s
+
+    # Map the split table back from yahoo symbols to portfolio symbols.
+    raw_splits = splits.extract_from_download(raw)
+    if '__single__' in raw_splits and len(ymap) == 1:
+        raw_splits = {next(iter(ymap)): raw_splits.pop('__single__')}
+    split_out = {ymap[y]: s for y, s in raw_splits.items() if y in ymap}
+    return out, split_out
+
+
+def seed_splits(symbols: list[str], start, split_table: dict | None = None) -> dict:
+    """One batched actions-only fetch to establish split coverage back to `start`.
+
+    Needed because the incremental price refresh only ever downloads dates
+    after the last cached one, so its window can't contain a split that already
+    happened — which is precisely the case that matters (a split between the
+    broker export and now). Runs once, then the incremental feed keeps it
+    current; see splits.needs_seed.
+    """
+    table = dict(split_table or {})
+    if not symbols:
+        return table
+    print(f'  seeding split history for {len(symbols)} symbol(s) from {start}')
+    _closes, new_splits = _download_closes(list(symbols), str(start),
+                                            str(date.today() + timedelta(days=1)))
+    return splits.merge_downloaded(table, new_splits)
+
+
+def refresh_historical(combined_index, hist_file: str, years: int = 10,
+                        split_table: dict | None = None) -> tuple[pd.DataFrame, dict]:
+    """Load historical.csv, fetch only the missing tail per symbol, save back.
+
+    Returns (hist_df, split_table) — the table is refreshed from the same
+    download that fetches prices, so callers get split data for free.
+    """
     today = date.today()
     start_full = pd.Timestamp(today - timedelta(days=365 * years + 30))
+    split_table = dict(split_table or {})
 
     try:
         hist_df = pd.read_csv(hist_file, index_col=0, parse_dates=True)
@@ -98,36 +183,57 @@ def refresh_historical(combined_index, hist_file: str, years: int = 10) -> pd.Da
 
     symbols = [s for s in combined_index if s != 'cash' and _TICKER_RE.match(str(s))]
 
-    updated = False
+    # Group symbols by the date they need fetching from, then issue ONE
+    # yf.download per group instead of one Ticker.history() per symbol. On a
+    # normal incremental run every symbol shares the same start date, so 122
+    # sequential round trips collapse into a single batched call.
+    by_start: dict[date, list[str]] = {}
     for sym in symbols:
-        ysym = yf_symbol(sym)
         if sym in hist_df.columns and not hist_df[sym].dropna().empty:
             last_date = hist_df[sym].dropna().index[-1].date()
             if last_date >= today:
                 continue
-            fetch_start = last_date + timedelta(days=1)
+            # A split makes every cached row for this symbol obsolete:
+            # auto_adjust restates the whole series retroactively, but we only
+            # ever fetch dates after last_date and combine_first keeps the
+            # existing value, so old rows would stay in pre-split units and
+            # leave a ~-95% cliff mid-series. Drop the column and refetch it
+            # whole. Rare enough to be cheap; silent corruption otherwise.
+            if splits.factor_since(split_table, sym, last_date) != 1.0:
+                print(f'  {sym}: split since {last_date} — refetching full history')
+                hist_df = hist_df.drop(columns=[sym])
+                fetch_start = start_full.date()
+            else:
+                fetch_start = last_date + timedelta(days=1)
         else:
             fetch_start = start_full.date()
-        try:
-            raw = yf.Ticker(ysym).history(start=str(fetch_start), end=str(today + timedelta(days=1)),
-                                           auto_adjust=True)
-            if raw.empty:
-                continue
-            new_close = raw['Close'].rename(sym)
-            new_close.index = new_close.index.tz_localize(None).normalize()
+        by_start.setdefault(fetch_start, []).append(sym)
+
+    updated = False
+    end = str(today + timedelta(days=1))
+    for fetch_start, group in sorted(by_start.items()):
+        closes, new_splits = _download_closes(group, str(fetch_start), end)
+        split_table = splits.merge_downloaded(split_table, new_splits)
+        for sym, new_close in closes.items():
+            # Reindex FIRST, in both branches. DataFrame.__setitem__ aligns the
+            # right-hand side to the frame's *existing* index, so assigning a
+            # combine_first() result straight back silently drops every date
+            # not already present — and since fetch_start is last_date + 1 day,
+            # that is every row we just fetched. The file kept being rewritten
+            # identically while Gain_3m/Sharpe_*/Ann_Vol/Beta/MPT quietly froze
+            # at whenever the last from-scratch rebuild happened.
+            hist_df = hist_df.reindex(hist_df.index.union(new_close.index))
             if sym in hist_df.columns:
                 hist_df[sym] = hist_df[sym].combine_first(new_close)
             else:
-                hist_df = hist_df.reindex(hist_df.index.union(new_close.index))
                 hist_df[sym] = new_close
             updated = True
-        except Exception as e:
-            print(f'WARNING (history) {sym}: {e}')
 
     cutoff = pd.Timestamp(today - timedelta(days=365 * years))
     hist_df = hist_df[hist_df.index >= cutoff].sort_index()
     if updated:
         hist_df.to_csv(hist_file)
+    return hist_df, split_table
     return hist_df
 
 
@@ -204,6 +310,10 @@ def classify_sectors(combined: pd.DataFrame, sector_cache_file: str) -> pd.DataF
 
     if os.path.exists(sector_cache_file):
         sec_cache = pd.read_csv(sector_cache_file, index_col='Symbol').to_dict('index')
+        # Evict placeholders written by the old failure-caching behavior (a
+        # transient 404 used to pin a symbol to Unknown permanently) so they
+        # get one more chance.
+        sec_cache = {k: v for k, v in sec_cache.items() if v.get('Quote_Type') != 'Unknown'}
     else:
         sec_cache = {}
 
@@ -224,14 +334,22 @@ def classify_sectors(combined: pd.DataFrame, sector_cache_file: str) -> pd.DataF
                 mktcap = None
             sec_cache[sym] = {'Quote_Type': qtype, 'Sector': sector, 'MarketCap': mktcap}
         except Exception as e:
-            print(f'WARNING (sector) {sym}: {e}')
-            sec_cache[sym] = {'Quote_Type': 'Unknown', 'Sector': 'Unknown', 'MarketCap': None}
+            # Deliberately NOT cached. Only symbols missing from the cache are
+            # ever fetched, so writing an 'Unknown' placeholder here made a
+            # single transient 404 permanent — the symbol was pinned to
+            # Sector=Unknown/Cap_Tier=ETF/Fund forever with nothing to retry
+            # it. Leaving it absent costs one retry next run.
+            print(f'WARNING (sector) {sym}: {e} — not cached, will retry next run')
 
     sec_df = pd.DataFrame.from_dict(sec_cache, orient='index')
     sec_df.index.name = 'Symbol'
     sec_df.to_csv(sector_cache_file)
 
+    # A symbol whose fetch failed isn't in the cache (so it retries next run),
+    # but it still needs a displayable value here rather than a null.
     result = sec_df.reindex(symbols)
+    result['Quote_Type'] = result['Quote_Type'].fillna('Unknown')
+    result['Sector'] = result['Sector'].fillna('Unknown')
 
     def cap_tier(row):
         if row['Quote_Type'] != 'EQUITY' or pd.isna(row['MarketCap']):
@@ -269,8 +387,20 @@ def analyst_targets(combined: pd.DataFrame) -> pd.DataFrame:
 
 def earnings_and_recommendations(combined: pd.DataFrame, earn_cache_file: str,
                                   etf_skip: set = None) -> tuple[pd.DataFrame, pd.DataFrame, list]:
-    """Refresh earnings.csv cache, fetch analyst recommendations + recent
-    upgrades/downgrades. Returns (earn_cache, recs_df, upgrades_rows)."""
+    """Refresh earnings.csv cache and fetch analyst recommendations.
+
+    Returns (earn_cache, recs_df, upgrades_rows). `upgrades_rows` is always []
+    — the upgrades/downgrades fetch was removed: it cost a yfinance round trip
+    per symbol on every run and every caller discarded the result, because
+    nothing ever wrote the upgrades.csv that export_app_data reads. Kept in the
+    signature so existing 3-tuple unpacking (notebook cell 10) still works.
+
+    Skipping: funds and ADRs have no earnings calendar or analyst coverage, so
+    asking for them is 404s and wasted time. That used to be a hand-maintained
+    symbol list (DEFAULT_ETF_SKIP) which drifted out of date — 11 held ETFs
+    weren't in it. Now it's driven by the Quote_Type already computed in
+    classify_sectors, with the list as a fallback for anything unclassified.
+    """
     import os
     if etf_skip is None:
         etf_skip = DEFAULT_ETF_SKIP
@@ -283,11 +413,17 @@ def earnings_and_recommendations(combined: pd.DataFrame, earn_cache_file: str,
         earn_cache.index.name = 'Symbol'
 
     symbols = combined.index[combined.index != 'cash'].tolist()
+    quote_types = (combined['Quote_Type'] if 'Quote_Type' in combined.columns
+                   else pd.Series(dtype=object))
     recs_rows = {}
-    upgrades = []
+    upgrades: list = []
 
     for sym in symbols:
-        if sym in etf_skip:
+        qtype = quote_types.get(sym)
+        if pd.notna(qtype) and qtype != '':
+            if qtype != 'EQUITY':
+                continue
+        elif sym in etf_skip:
             continue
         ysym = yf_symbol(sym)
 
@@ -332,19 +468,6 @@ def earnings_and_recommendations(combined: pd.DataFrame, earn_cache_file: str,
                         'Mixed'
                     ),
                 }
-        except Exception:
-            pass
-
-        try:
-            ud = yf.Ticker(ysym).upgrades_downgrades
-            if ud is not None and not ud.empty:
-                cutoff = pd.Timestamp(today - timedelta(days=90), tz='UTC')
-                ud.index = pd.to_datetime(ud.index, utc=True)
-                recent = ud[ud.index >= cutoff].copy()
-                if not recent.empty:
-                    recent.insert(0, 'Symbol', sym)
-                    upgrades.append(recent.reset_index()[
-                        ['Symbol', 'GradeDate', 'Firm', 'ToGrade', 'FromGrade', 'Action', 'currentPriceTarget']])
         except Exception:
             pass
 

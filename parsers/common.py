@@ -43,3 +43,28 @@ def clean_num(val) -> float:
 
 def is_option(sym) -> bool:
     return bool(_OCC_RE.match(str(sym).strip()))
+
+
+def account_key(raw) -> str:
+    """Normalize a broker account number to the short key used everywhere.
+
+    Every parser has to agree on this or nothing joins. The trap: pandas types
+    Fidelity's numeric `Account Number` column as float64, so the naive
+    `str(raw)[-4:]` used to yield '28.0' for 236369828 — which matched no
+    position account, silently duplicating transaction rows and making
+    analytics.infer_missing_trades re-invent trades it already had.
+
+    Coerce numeric-like values through int first, keep only digits, take the
+    last 4, then drop leading zeros. That last step is deliberate: it
+    reproduces what parsers/fidelity.py already produced (str(int(...))), so
+    app_data/accounts.json keys and the ACC_* name map in .env keep working.
+    """
+    s = str(raw).strip()
+    try:
+        s = str(int(float(s)))
+    except (TypeError, ValueError):
+        pass
+    digits = ''.join(ch for ch in s if ch.isdigit())
+    if not digits:
+        return str(raw).strip()
+    return str(int(digits[-4:]))
