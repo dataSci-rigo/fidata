@@ -1,0 +1,4 @@
+# fiData watchlist — non-held tickers to track and screen for breakouts.
+# One ticker per line; '#' starts a comment. Each ticker added here gets
+# 10 years of history backfilled into historical.csv on the next pipeline
+# run and is included in the 3x/day 52-week-high breakout alerts.

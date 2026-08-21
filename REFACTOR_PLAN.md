@@ -668,3 +668,36 @@ share it.
 with cost basis unchanged at $15,949 (the dollars were always right), unrealized G/L
 -$15,476 → -$6,511, portfolio weight 0.069% → 1.350%. The other 11 splits all predate their
 exports and are correctly inert (`Split_Factor == 1.0`). Tests 74 → **123**.
+
+### Update (2026-08-20): 52-week-high screener + breakout alerts + Turtle backtester feed
+
+Revival of `projects/turtle_tbt` (the user's abandoned breakout screener) inside fiData,
+plus a data feed for `projects/turtle_trading_bt` (MIT Turtle backtester, previously
+unrunnable — empty `data/`, unconditional plotly import).
+
+- **`market_data.py`** (new): shared read-side adapter — `load_history`, `holdings_symbols`,
+  `load_watchlist`, `get_closes` (historical.csv subset, optional yfinance fill),
+  `get_daily_ohlc` (per-symbol OHLCV cache in `data/ohlc/`, incremental tail fetch,
+  >1%-divergence cross-check vs historical.csv), `get_hourly_ohlc`, `to_turtle_frames`.
+- **`screener.py`** (new): scan for symbols ≥85% of their *prior* 252-day high with
+  close > EMA50 > EMA200 intact. Fixes turtle_tbt/pull_data.py's two metric bugs:
+  cumulative returns now `(1+r).cumprod()` (was `1 + r.cumsum()`), Sharpe now annualized
+  matching `enrich.symbol_metrics`. CLI: `--universe holdings|history|watchlist|<file>`,
+  `--near-high`, `--fetch-missing`, `--fundamentals` (profitMargins>0, CLI-only), `--out`.
+- **`alerts.detect_breakouts`** (new): two-tier Telegram alerts — 🚀 fresh 52-wk high
+  (ratio ≥ 1.0) and 📈 near-high band entry (0.85–1.0) — 30-day per-symbol-per-tier
+  cooldown in `data/alerted_breakouts.json`; a breakout stamps both tiers.
+- **`run_pipeline.py`**: merges `watchlist.txt` (new, seeded empty) into `all_symbols`
+  (refresh_historical backfills 10y for new tickers automatically) and appends
+  `detect_breakouts` messages to the existing send/persist path.
+- **Turtle backtester**: `turtle_trading_bt/make_data.py` (new) writes backtest.py-shaped
+  CSVs from the adapter. Daily-degraded mode emits **4 pseudo-ticks/day (O→H→L→C)** — one
+  close-only row per day can never trigger an entry, since the prior-20-day High max always
+  contains yesterday's own High. `backtest.py` minimally patched (argv data paths, computed
+  `bars_per_day` warmup, optional plotly); pristine copy kept as `backtest.py.upstream`.
+  Verified: SPY 10y daily-degraded → 57.8% win rate, $1000 → $2071; QQQ ~730d real hourly
+  bars → $1000 → $1283.
+- **Tests**: 141 → **157** (`test_screener.py`, `test_alerts_breakout.py`,
+  `test_market_data.py`; fixtures `hist_screener.csv`, `ohlc_daily_small.csv` — note
+  `.gitignore`'s `*.csv` means the fixtures need `git add -f`). Pre-existing failures
+  (3 in test_cost_basis.py, 1 in test_export_schema.py) are unrelated and present on HEAD.

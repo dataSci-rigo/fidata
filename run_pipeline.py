@@ -51,7 +51,8 @@ from enrich import (
     risk_free_rate, symbol_metrics,
 )
 from plotting import save_correlation_heatmap_plot, save_efficient_frontier_plot, save_mpt_summary
-from alerts import detect_alerts, save_snapshot
+from alerts import detect_alerts, detect_breakouts, save_snapshot
+from market_data import load_watchlist
 from telegram_alert import send_telegram
 
 DATA_DIR = _DATA_DIR
@@ -69,6 +70,8 @@ UPGRADES_FILE = os.path.join(DATA_DIR, 'upgrades.csv')
 LAST_SNAPSHOT_FILE = os.path.join(DATA_STATE_DIR, 'last_run_snapshot.csv')
 LAST_ALERTS_FILE = os.path.join(DATA_STATE_DIR, 'last_alerts.json')
 ALERTED_EARNINGS_FILE = os.path.join(DATA_STATE_DIR, 'alerted_earnings.json')
+ALERTED_BREAKOUTS_FILE = os.path.join(DATA_STATE_DIR, 'alerted_breakouts.json')
+WATCHLIST_FILE = os.path.join(DATA_DIR, 'watchlist.txt')
 SPLITS_FILE = os.path.join(DATA_STATE_DIR, splits.CACHE_NAME)
 EFFICIENT_FRONTIER_PNG = os.path.join(DATA_DIR, 'efficient_frontier.png')
 CORRELATION_HEATMAP_PNG = os.path.join(DATA_DIR, 'correlation_heatmap.png')
@@ -95,6 +98,11 @@ def run() -> dict:
     split_table = splits.load_table(SPLITS_FILE)
     split_meta = splits.load_meta(SPLITS_FILE)
     all_symbols = [str(s) for s in merge_accounts(accounts).index if str(s) != 'cash']
+    # Watchlist tickers ride the same refresh: refresh_historical backfills
+    # 10y for any symbol not yet a historical.csv column, and the breakout
+    # alert below screens all_symbols. Downstream portfolio metrics select
+    # columns by combined.index, so the extra columns are inert there.
+    all_symbols = sorted(set(all_symbols) | set(load_watchlist(WATCHLIST_FILE)))
 
     # Coverage must reach back to the oldest thing being normalized — the
     # cost-basis cutoff — because the incremental price refresh only downloads
@@ -203,6 +211,7 @@ def run() -> dict:
 
     messages = detect_alerts(combined, LAST_SNAPSHOT_FILE, earn_cache,
                              ALERTED_EARNINGS_FILE, split_table=split_table)
+    messages.extend(detect_breakouts(hist_df, all_symbols, ALERTED_BREAKOUTS_FILE))
     # A split means the export is stale — worth telling you, since the fix is
     # to re-download it and only you can do that.
     messages.extend(f'⚠ {m}' for m in split_msgs)

@@ -10,6 +10,7 @@ import pandas as pd
 
 BIG_MOVE_PCT = 0.05
 EARNINGS_WINDOW_DAYS = 3
+BREAKOUT_COOLDOWN_DAYS = 30
 
 
 def load_last_snapshot(path: str) -> pd.DataFrame | None:
@@ -97,6 +98,64 @@ def detect_upcoming_earnings(earn_cache: pd.DataFrame, combined: pd.DataFrame,
             continue
         messages.append(f'📅 {sym}: earnings on {earn_date}')
         alerted[sym] = earn_date
+
+    if messages:
+        with open(alerted_file, 'w') as f:
+            json.dump(alerted, f, indent=2)
+
+    return messages
+
+
+def detect_breakouts(hist_df: pd.DataFrame, symbols: list[str],
+                     alerted_file: str,
+                     cooldown_days: int = BREAKOUT_COOLDOWN_DAYS) -> list[str]:
+    """Two-tier 52-week-high alerts over holdings+watchlist:
+
+    - breakout (ratio >= 1.0 vs the prior 252d high): fresh 52-week high
+    - near-high (0.85 <= ratio < 1.0): entered the approach band
+
+    Dedup state is {symbol: {"near": iso_date, "breakout": iso_date}} in
+    `alerted_file`, one cooldown per tier — without it the 3x/day pipeline
+    would re-ping every uptrending holding all week. A breakout also stamps
+    the near tier (a breakout implies near-high; don't double-ping).
+    File is rewritten only when something fired, matching
+    detect_upcoming_earnings.
+    """
+    from screener import scan, NEAR_HIGH_DEFAULT, BREAKOUT_LEVEL
+
+    if os.path.exists(alerted_file):
+        with open(alerted_file) as f:
+            alerted = json.load(f)
+    else:
+        alerted = {}
+
+    today = pd.Timestamp.now().normalize()
+    today_str = str(today.date())
+
+    def on_cooldown(sym: str, tier: str) -> bool:
+        last = alerted.get(sym, {}).get(tier)
+        return last is not None and \
+            (today - pd.Timestamp(last)).days < cooldown_days
+
+    messages = []
+    result = scan(hist_df, symbols, near_high=NEAR_HIGH_DEFAULT)
+    for sym, row in result.iterrows():
+        if row['Breakout']:
+            if on_cooldown(sym, 'breakout'):
+                continue
+            messages.append(
+                f"🚀 {sym}: new 52-wk high @ ${row['Close']:.2f} "
+                f"(prior high ${row['High_52w']:.2f}, Sharpe {row['Sharpe']:.2f})")
+            alerted.setdefault(sym, {})['breakout'] = today_str
+            alerted[sym]['near'] = today_str
+        else:
+            if on_cooldown(sym, 'near'):
+                continue
+            pct_below = (1 - row['Ratio']) * 100
+            messages.append(
+                f"📈 {sym}: within {pct_below:.1f}% of its 52-wk high "
+                f"(${row['Close']:.2f} vs ${row['High_52w']:.2f})")
+            alerted.setdefault(sym, {})['near'] = today_str
 
     if messages:
         with open(alerted_file, 'w') as f:
