@@ -32,8 +32,8 @@ def detect_big_moves(combined: pd.DataFrame, prev_snapshot_file: str,
     not a daily figure — by design).
 
     `split_table` restates the stored price into today's share terms first.
-    Without it, the first run after an ex-date reads a 20:1 split as
-    '📉 KORU: -95.0%' — a false alarm big enough to drown the real ones, and
+    Without it, the first run after an ex-date reads an N:1 split as a huge
+    fake drop — a false alarm large enough to drown the real ones, and
     exactly the sort of noise that trains you to ignore the alerts.
     """
     prev = load_last_snapshot(prev_snapshot_file)
@@ -162,6 +162,41 @@ def detect_breakouts(hist_df: pd.DataFrame, symbols: list[str],
             json.dump(alerted, f, indent=2)
 
     return messages
+
+
+def dedupe_split_messages(split_msgs: list[str], alerted_file: str) -> list[str]:
+    """`splits.adjust_positions()` has no memory of its own — it reports the
+    same stale-export message every single run until you re-download the
+    export, which on a 3x/day schedule means the identical alert forever.
+    Dedup by exact message text (matching detect_upcoming_earnings/
+    detect_breakouts' pattern): a genuinely new event — a new ratio, a new
+    export date — produces different text and still gets through; an
+    unresolved old one only fires once."""
+    if os.path.exists(alerted_file):
+        with open(alerted_file) as f:
+            alerted = set(json.load(f))
+    else:
+        alerted = set()
+
+    new = [m for m in split_msgs if m not in alerted]
+    if new:
+        alerted |= set(new)
+        with open(alerted_file, 'w') as f:
+            json.dump(sorted(alerted), f, indent=2)
+    return new
+
+
+def market_closed_notice(state_file: str, today: str) -> str | None:
+    """'Markets are not open.' at most once per non-trading day — the
+    pipeline still runs 3x on weekends, and without dedup this would just
+    replace one kind of repeat message with another."""
+    if os.path.exists(state_file):
+        with open(state_file) as f:
+            if json.load(f).get('date') == today:
+                return None
+    with open(state_file, 'w') as f:
+        json.dump({'date': today}, f)
+    return 'Markets are not open.'
 
 
 def detect_alerts(combined: pd.DataFrame, prev_snapshot_file: str,

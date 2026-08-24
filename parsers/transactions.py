@@ -163,10 +163,9 @@ def load_transactions(buysell_dir: str, split_table: dict | None = None) -> pd.D
     With `split_table`, pre-split fills are restated into today's share terms:
     Quantity is scaled by the cumulative ratio since the trade date and Price
     divided by it. Without this, `analytics.compute_cost_basis` averages prices
-    from either side of a split as if they were the same unit, and the result
-    is compared against a post-split live price — e.g. KORU bought at $383.39
-    (adjusted: $18.68) against a $21.50 quote. Price x Quantity is preserved,
-    so `capital_deployed`'s dollar totals are unchanged.
+    from either side of a split as if they were the same unit, comparing a
+    pre-split fill price against a post-split live quote. Price x Quantity is
+    preserved, so `capital_deployed`'s dollar totals are unchanged.
     """
     tx_rows: list[dict] = []
     for fn in sorted(os.listdir(buysell_dir)):

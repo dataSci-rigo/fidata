@@ -51,8 +51,11 @@ from enrich import (
     risk_free_rate, symbol_metrics,
 )
 from plotting import save_correlation_heatmap_plot, save_efficient_frontier_plot, save_mpt_summary
-from alerts import detect_alerts, detect_breakouts, save_snapshot
-from market_data import load_watchlist
+from alerts import (
+    dedupe_split_messages, detect_alerts, detect_breakouts,
+    market_closed_notice, save_snapshot,
+)
+from market_data import asia_open_summary, load_watchlist, us_market_open
 from telegram_alert import send_telegram
 
 DATA_DIR = _DATA_DIR
@@ -71,6 +74,8 @@ LAST_SNAPSHOT_FILE = os.path.join(DATA_STATE_DIR, 'last_run_snapshot.csv')
 LAST_ALERTS_FILE = os.path.join(DATA_STATE_DIR, 'last_alerts.json')
 ALERTED_EARNINGS_FILE = os.path.join(DATA_STATE_DIR, 'alerted_earnings.json')
 ALERTED_BREAKOUTS_FILE = os.path.join(DATA_STATE_DIR, 'alerted_breakouts.json')
+ALERTED_SPLITS_FILE = os.path.join(DATA_STATE_DIR, 'alerted_splits.json')
+MARKET_NOTICE_FILE = os.path.join(DATA_STATE_DIR, 'market_closed_notice.json')
 WATCHLIST_FILE = os.path.join(DATA_DIR, 'watchlist.txt')
 SPLITS_FILE = os.path.join(DATA_STATE_DIR, splits.CACHE_NAME)
 EFFICIENT_FRONTIER_PNG = os.path.join(DATA_DIR, 'efficient_frontier.png')
@@ -209,14 +214,34 @@ def run() -> dict:
     with open(PORTFOLIO_EXTRAS_FILE, 'w') as f:
         json.dump(extras, f, indent=2, default=str)
 
-    messages = detect_alerts(combined, LAST_SNAPSHOT_FILE, earn_cache,
-                             ALERTED_EARNINGS_FILE, split_table=split_table)
-    messages.extend(detect_breakouts(hist_df, all_symbols, ALERTED_BREAKOUTS_FILE))
-    # A split means the export is stale — worth telling you, since the fix is
-    # to re-download it and only you can do that.
-    messages.extend(f'⚠ {m}' for m in split_msgs)
-    for msg in messages:
-        send_telegram(msg)
+    # Market-data alerts (moves, earnings, breakouts) only make sense against
+    # a live session — outside it the prices are stale repeats. Weekend runs
+    # get a single "Markets are not open." per day instead, and the Sunday
+    # 19:00 run reports how Asia's Monday sessions opened. Weekday evening
+    # runs (post-close) skip silently — the day's earlier runs covered it.
+    messages = []
+    if us_market_open():
+        messages = detect_alerts(combined, LAST_SNAPSHOT_FILE, earn_cache,
+                                 ALERTED_EARNINGS_FILE, split_table=split_table)
+        messages.extend(detect_breakouts(hist_df, all_symbols, ALERTED_BREAKOUTS_FILE))
+    else:
+        now_la = pd.Timestamp.now(tz='America/Los_Angeles')
+        if now_la.dayofweek == 6 and now_la.hour >= 16:
+            asia = asia_open_summary()
+            if asia:
+                messages.append(asia)
+        elif now_la.dayofweek >= 5:
+            notice = market_closed_notice(MARKET_NOTICE_FILE, str(now_la.date()))
+            if notice:
+                messages.append(notice)
+    # A split means the export is stale — worth telling you once, since the
+    # fix is to re-download it and only you can do that. Deduped so an
+    # unresolved export doesn't re-alert every run until you do.
+    messages.extend(f'⚠ {m}' for m in dedupe_split_messages(split_msgs, ALERTED_SPLITS_FILE))
+    # One Telegram message per run instead of one per alert — a run with 6
+    # alerts used to mean 6 separate notifications.
+    if messages:
+        send_telegram('\n'.join(messages))
 
     # Persist what was sent so run_daily_review.py can report on this run
     # without re-running the whole pipeline for it.

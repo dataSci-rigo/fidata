@@ -7,7 +7,8 @@ fiData is a flat module dir, so external consumers do
 same trick run_pipeline.py uses on itself.
 """
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, time as dtime, timedelta
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -17,10 +18,40 @@ ACCOUNTS_DIR = os.path.join(DATA_DIR, 'accounts')
 WATCHLIST_FILE = os.path.join(DATA_DIR, 'watchlist.txt')
 OHLC_CACHE_DIR = os.path.join(DATA_DIR, 'data', 'ohlc')
 
+ASIA_INDICES = [('Nikkei', '^N225'), ('Hang Seng', '^HSI'),
+                ('Shanghai', '000001.SS'), ('KOSPI', '^KS11')]
+
 OHLC_COLS = ['Open', 'High', 'Low', 'Close', 'Volume']
 # Close divergence vs historical.csv beyond this (median, relative) usually
 # means a split/adjustment mismatch between the two sources.
 CROSS_CHECK_TOL = 0.01
+
+
+def us_market_open(now: datetime | None = None) -> bool:
+    """Regular NYSE session (Mon–Fri 9:30–16:00 ET), with grace to 16:15 so
+    the pipeline run scheduled at the closing bell still counts as market
+    data. Holidays are not modeled — a holiday run just compares unchanged
+    prices and alerts nothing."""
+    now = now or datetime.now(ZoneInfo('America/New_York'))
+    if now.weekday() >= 5:
+        return False
+    return dtime(9, 30) <= now.time() < dtime(16, 15)
+
+
+def asia_open_summary() -> str | None:
+    """One-line % change for the major Asian indices, for the Sunday-night
+    run once their Monday sessions have opened. None if nothing fetched."""
+    import yfinance as yf
+    parts = []
+    for name, tkr in ASIA_INDICES:
+        try:
+            fi = yf.Ticker(tkr).fast_info
+            last, prev = fi.last_price, fi.previous_close
+            if last and prev:
+                parts.append(f'{name} {(last - prev) / prev:+.1%}')
+        except Exception as e:
+            print(f'asia open: {tkr} failed: {e}')
+    return '🌏 Asia open: ' + ', '.join(parts) if parts else None
 
 
 def load_history(hist_file: str = HIST_FILE) -> pd.DataFrame:

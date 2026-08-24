@@ -19,12 +19,10 @@ import requests
 TOKEN = os.getenv('FI_BOT_ID', '')
 CHAT_ID = os.getenv('OWNER_CHAT_ID', '').strip("'\"")
 BASE_URL = f'https://api.telegram.org/bot{TOKEN}'
+MAX_LEN = 4096
 
 
-def send_telegram(text: str) -> bool:
-    if not TOKEN or not CHAT_ID:
-        print(f'[telegram disabled — no FI_BOT_ID/OWNER_CHAT_ID] {text}')
-        return False
+def _send_one(text: str) -> bool:
     payload = {'chat_id': CHAT_ID, 'text': text}
     try:
         resp = requests.post(f'{BASE_URL}/sendMessage', json=payload, timeout=10)
@@ -34,3 +32,27 @@ def send_telegram(text: str) -> bool:
     except Exception as e:
         print(f'telegram send error: {e}')
         return False
+
+
+def send_telegram(text: str) -> bool:
+    if not TOKEN or not CHAT_ID:
+        print(f'[telegram disabled — no FI_BOT_ID/OWNER_CHAT_ID] {text}')
+        return False
+    if len(text) <= MAX_LEN:
+        return _send_one(text)
+
+    # Batched alert callers can produce more than one message's worth in a
+    # single join — split on line boundaries so an alert never gets cut
+    # mid-sentence, rather than let Telegram's API 400 the whole send.
+    chunks, chunk = [], ''
+    for line in text.split('\n'):
+        candidate = f'{chunk}\n{line}' if chunk else line
+        if len(candidate) > MAX_LEN:
+            if chunk:
+                chunks.append(chunk)
+            chunk = line
+        else:
+            chunk = candidate
+    if chunk:
+        chunks.append(chunk)
+    return all(_send_one(c) for c in chunks)
