@@ -206,6 +206,125 @@ def load_transactions(buysell_dir: str, split_table: dict | None = None) -> pd.D
     return tx_df
 
 
+# Cash-flow categorization, checked in order (first match wins). Trades are
+# excluded upstream. Fidelity spells these out in Action ("DIVIDEND RECEIVED",
+# "ELECTRONIC FUNDS TRANSFER RECEIVED", ...); E*Trade in Activity Description
+# ("Cash Dividend Received", "Maintenance Fee", ...).
+_CASH_FLOW_CATEGORIES = [
+    ('DIVIDEND', 'DIVIDEND'),
+    ('INTEREST', 'INTEREST'),
+    ('FEE', 'FEE'),
+    ('FOREIGN TAX', 'FEE'),
+    ('TRANSFER', 'TRANSFER'),
+    ('DEPOSIT', 'TRANSFER'),
+    ('WITHDRAW', 'TRANSFER'),
+    ('CONTRIBUTION', 'TRANSFER'),
+    ('DISTRIBUTION', 'TRANSFER'),
+    ('WIRE', 'TRANSFER'),
+    ('JOURNAL', 'TRANSFER'),
+]
+
+
+def _cash_flow_category(desc: str) -> str | None:
+    s = str(desc).upper()
+    if any(w in s for w in ('BOUGHT', 'SOLD', 'REINVEST', 'BUY', 'SELL', 'SPLIT')):
+        return None
+    for needle, cat in _CASH_FLOW_CATEGORIES:
+        if needle in s:
+            return cat
+    return None
+
+
+def parse_cash_flows_csv(filepath: str) -> list[dict]:
+    """Non-trade cash rows (dividends, interest, fees, transfers in/out) from a
+    Fidelity 'Run Date' history CSV. NOTE: a history download made with the
+    trades-only filter contains none of these — re-download with all
+    transaction types included for this to see anything."""
+    fn = os.path.basename(filepath)
+    with open(filepath, 'r', encoding='utf-8-sig') as f:
+        lines = f.readlines()
+    hdr_idx = next((i for i, l in enumerate(lines) if 'Run Date' in l), None)
+    if hdr_idx is None:
+        return []
+    clean = [l.rstrip(',\n') + '\n' for l in lines]
+    try:
+        df = pd.read_csv(io.StringIO(''.join(clean[hdr_idx:])), header=0)
+    except Exception as e:
+        print(f'cash-flow skip {fn}: {e}')
+        return []
+    df.columns = df.columns.str.strip()
+    if 'Amount ($)' not in df.columns:
+        return []
+
+    rows = []
+    for _, row in df.iterrows():
+        cat = _cash_flow_category(row.get('Action', ''))
+        if cat is None:
+            continue
+        dt = pd.to_datetime(row.get('Run Date'), errors='coerce')
+        amt = pd.to_numeric(str(row.get('Amount ($)', '')).replace(',', ''), errors='coerce')
+        if pd.isna(dt) or pd.isna(amt) or amt == 0:
+            continue
+        sym = str(row.get('Symbol', '')).strip()
+        rows.append(dict(Date=dt, Category=cat, Amount=float(amt),
+                          Symbol=sym if sym and sym != 'nan' else '',
+                          Description=str(row.get('Action', '')).strip()[:80]))
+    return rows
+
+
+def parse_cash_flows_xlsx(filepath: str) -> list[dict]:
+    """Non-trade cash rows from an E*Trade 'History' xlsx (Cash Dividend
+    Received, Maintenance Fee, transfers, ...)."""
+    fn = os.path.basename(filepath)
+    try:
+        df = pd.read_excel(filepath, skiprows=6, header=0)
+        df.columns = df.columns.str.strip()
+    except Exception as e:
+        print(f'cash-flow skip {fn}: {e}')
+        return []
+    if 'Net Amount' not in df.columns:
+        return []
+
+    rows = []
+    for _, row in df.iterrows():
+        cat = _cash_flow_category(row.get('Activity Description', ''))
+        if cat is None:
+            continue
+        dt = pd.to_datetime(row.get('Date'), errors='coerce')
+        amt = pd.to_numeric(row.get('Net Amount'), errors='coerce')
+        if pd.isna(dt) or pd.isna(amt) or amt == 0:
+            continue
+        sym = str(row.get('Security ID', '')).strip()
+        rows.append(dict(Date=dt, Category=cat, Amount=float(amt),
+                          Symbol=sym if sym and sym != 'nan' else '',
+                          Description=str(row.get('Activity Description', '')).strip()[:80]))
+    return rows
+
+
+def load_cash_flows(buysell_dir: str) -> pd.DataFrame:
+    """All non-trade cash flows from every history file in buysell_dir:
+    Date, Category (DIVIDEND/INTEREST/FEE/TRANSFER), Amount (signed: money in
+    positive, money out negative), Symbol, Description.
+
+    Same overlap caveat as load_transactions — a multi-account file covers the
+    same rows as per-account files, so dedupe ignores which file a row came
+    from."""
+    cf_rows: list[dict] = []
+    for fn in sorted(os.listdir(buysell_dir)):
+        fp = os.path.join(buysell_dir, fn)
+        if fn.endswith('.csv'):
+            cf_rows.extend(parse_cash_flows_csv(fp))
+        elif fn.endswith('.xlsx'):
+            cf_rows.extend(parse_cash_flows_xlsx(fp))
+
+    cf_df = (pd.DataFrame(cf_rows) if cf_rows
+             else pd.DataFrame(columns=['Date', 'Category', 'Amount', 'Symbol', 'Description']))
+    if not cf_df.empty:
+        cf_df = (cf_df.drop_duplicates(subset=['Date', 'Category', 'Symbol', 'Amount'])
+                       .sort_values('Date').reset_index(drop=True))
+    return cf_df
+
+
 def load_realized_lots(buysell_dir: str, cutoff: pd.Timestamp, *extra_dirs: str) -> pd.DataFrame:
     """All realized-gain lots from Schwab lot-detail CSVs.
 

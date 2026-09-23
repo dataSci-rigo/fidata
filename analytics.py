@@ -233,6 +233,43 @@ def capital_performance(combined: pd.DataFrame, tx_df: pd.DataFrame,
     }
 
 
+def cash_flow_summary(cf_df: pd.DataFrame) -> dict:
+    """Incoming/exiting money outside of trades — dividends, interest, fees,
+    transfers in/out — as totals + an annual table for the panel's Capital
+    Tracking card. cf_df comes from parsers.transactions.load_cash_flows.
+
+    Coverage is only as good as the exports: a Fidelity/Schwab history
+    downloaded with the trades-only filter has none of these rows, so the
+    panel shows a coverage note instead of silently reading $0 as truth.
+    """
+    if cf_df.empty:
+        return {}
+    cf = cf_df.copy()
+    cf['Year'] = cf['Date'].dt.year
+
+    def _cat_sum(frame: pd.DataFrame, cat: str, sign: int = 0) -> pd.Series:
+        sub = frame[frame['Category'] == cat]
+        if sign > 0:
+            sub = sub[sub['Amount'] > 0]
+        elif sign < 0:
+            sub = sub[sub['Amount'] < 0]
+        return sub.groupby('Year')['Amount'].sum()
+
+    years = sorted(cf['Year'].unique())
+    annual = pd.DataFrame(index=pd.Index(years, name='Year'))
+    annual['Dividends'] = _cat_sum(cf, 'DIVIDEND')
+    annual['Interest'] = _cat_sum(cf, 'INTEREST')
+    annual['Fees'] = _cat_sum(cf, 'FEE')
+    annual['Money_In'] = _cat_sum(cf, 'TRANSFER', sign=1)
+    annual['Money_Out'] = _cat_sum(cf, 'TRANSFER', sign=-1)
+    annual = annual.fillna(0.0).round(2)
+    annual['Net'] = annual.sum(axis=1).round(2)
+
+    totals = {c.lower(): float(annual[c].sum()) for c in annual.columns}
+    return {'annual': _df_to_records(annual), 'totals': totals,
+            'n_rows': int(len(cf))}
+
+
 # ── Cell 5: snapshot-diff trade inference (headless — bug fix #3) ─────────────
 
 def collect_snapshots(past_dir: str, accounts_dir: str) -> dict:

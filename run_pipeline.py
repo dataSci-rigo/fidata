@@ -37,10 +37,10 @@ matplotlib.use('Agg')
 import pandas as pd
 
 from parsers import load_positions
-from parsers.transactions import load_realized_lots, load_transactions
+from parsers.transactions import load_cash_flows, load_realized_lots, load_transactions
 import splits
 from analytics import (
-    CUTOFF, DEFAULT_BUY, capital_performance, closed_positions_summary,
+    CUTOFF, DEFAULT_BUY, capital_performance, cash_flow_summary, closed_positions_summary,
     collect_snapshots, compute_cost_basis, correlation_matrix, normalize_snapshots,
     efficient_frontier, export_app_data, high_correlation_pairs, infer_missing_trades,
     load_fallback_cost_basis, merge_accounts, mpt_metrics,
@@ -201,6 +201,11 @@ def run() -> dict:
     extras = {
         'closed_positions': closed_positions_summary(sold_df),
         'capital': capital_performance(combined, tx_df, sold_df),
+        # Dividends / interest / fees / transfers in-out, from the same
+        # history exports the trades come from. Empty until those exports
+        # are re-downloaded without the trades-only filter (only the E*Trade
+        # xlsx currently carries cash rows).
+        'cash_flows': cash_flow_summary(load_cash_flows(BUYSELL_DIR)),
         'risk_contributors': (
             metrics['risk_contrib'].nlargest(15, 'RiskContrib_pct').reset_index().to_dict('records')
             if len(metrics['symbols']) >= 2 else []),
