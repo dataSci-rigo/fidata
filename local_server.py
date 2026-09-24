@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 """fiData/local_server.py — local-only web viewer.
 
-A browser front-end over whatever the last run_pipeline.py left on disk. It
-never fetches, never triggers the pipeline, and never sends Telegram — so
-opening it cannot perturb the scheduled jobs' state (last_run_snapshot.csv,
-alerted_earnings.json) the way a "Refresh" button would.
+A browser front-end over whatever the last run_pipeline.py left on disk. Its
+GET surface never fetches, never triggers the pipeline, and never sends
+Telegram — so opening it cannot perturb the scheduled jobs' state
+(last_run_snapshot.csv, alerted_earnings.json) the way a "Refresh" button
+would.
+
+The /discover page adds three explicit-user-action POST endpoints (the only
+writes in the app): /discover/watchlist appends to watchlist.txt,
+/discover/refresh launches refresh_universe.py as a detached subprocess, and
+/discover/ai calls the Anthropic API. They touch only data/universe/* and
+watchlist.txt — never pipeline state — and require the X-FiData: 1 header
+(set by this page's own fetch calls; a cross-site form can't send it).
 
 LOCAL ONLY. Gated on FIDATA_LOCAL=1, which belongs in this machine's .env and
 must never reach ~/code20/.env.master — env_sync.py push_env propagates master
@@ -18,6 +26,7 @@ import glob
 import io
 import json
 import os
+import subprocess
 import sys
 
 from dotenv import dotenv_values
@@ -40,7 +49,12 @@ from flask import Flask, Response, abort, render_template, request, send_file
 
 from app_data_io import (APP_DATA, DATA_STATE, cell, col_kind, data_status, fmt,
                          humanize, load)
+from discover_filters import (DEFAULTS, RANGE_FIELDS, SORT_COLUMNS,
+                              apply_filters, params_from_args, validate_params)
+from market_data import append_watchlist, load_watchlist
 from plotting import DEFAULT_RF, build_price_drawdown_figure
+import ai_screener
+import universe_data
 
 HIST_FILE = os.path.join(_DATA_DIR, 'historical.csv')
 
@@ -317,6 +331,13 @@ def create_app(app_data_dir: str = APP_DATA, data_dir: str = DATA_STATE,
         return render_template('review.html', title='Weekly Review', dates=dates,
                                 chosen=chosen, sections=sections, **base_ctx('review'))
 
+    # ── news ─────────────────────────────────────────────────────────────────
+    @app.route('/news')
+    def news_page():
+        feed = _state('news_feed.json', data_dir) or {}
+        return render_template('news.html', title='News', feed=feed,
+                                **base_ctx('news'))
+
     # ── charts ───────────────────────────────────────────────────────────────
     @app.route('/chart')
     def chart():
@@ -376,8 +397,136 @@ def create_app(app_data_dir: str = APP_DATA, data_dir: str = DATA_STATE,
         buf.seek(0)
         return send_file(buf, mimetype='image/png')
 
+    # ── discover (candidate screener) ────────────────────────────────────────
+    universe_dir = os.path.join(data_dir, 'universe')
+    watchlist_path = os.path.join(root_dir, 'watchlist.txt')
+    status_path = os.path.join(universe_dir, universe_data.STATUS_FILE)
+    _uni_cache: dict = {'mtime': None, 'df': None}
+    _refresh_proc: dict = {'proc': None}
+
+    DISCOVER_COLS = ['Symbol', 'Name', 'Asset_Class', 'Sector', 'MarketCap',
+                     'Ann_Vol', 'Sharpe_1yr', 'Gain_1yr', 'Gain_3m', 'Beta',
+                     'Corr_Portfolio', 'Dividend_Yield', 'Expense_Ratio',
+                     'High_52w_Ratio']
+
+    def _universe_df():
+        path = os.path.join(universe_dir, universe_data.UNIVERSE_FILE)
+        if not os.path.exists(path):
+            return None
+        mtime = os.path.getmtime(path)
+        if _uni_cache['mtime'] != mtime:
+            _uni_cache.update(mtime=mtime, df=pd.read_csv(path))
+        return _uni_cache['df']
+
+    def _held_symbols() -> frozenset:
+        rows = _rows('combined.json', app_data_dir)
+        return frozenset(r['Symbol'] for r in rows
+                         if r.get('Symbol') and r['Symbol'] != CASH)
+
+    def _require_page_post():
+        # CSRF guard for the app's only write endpoints: a cross-site form or
+        # fetch cannot attach this custom header; this page's own JS does.
+        if request.headers.get('X-FiData') != '1':
+            abort(403, 'missing X-FiData header')
+
+    def _refresh_running() -> bool:
+        proc = _refresh_proc['proc']
+        if proc is not None and proc.poll() is None:
+            return True
+        st = universe_data.read_status(status_path) or {}
+        if st.get('phase') in (None, 'done', 'error'):
+            return False
+        pid = st.get('pid')
+        if not pid:
+            return False
+        try:
+            os.kill(int(pid), 0)
+            return True
+        except (OSError, ValueError):
+            return False
+
+    @app.route('/discover')
+    def discover():
+        df = _universe_df()
+        params, warnings = validate_params(params_from_args(request.args))
+        form_state = {**DEFAULTS, **params}
+        watching = frozenset(load_watchlist(watchlist_path))
+        rows, total, sector_opts, asset_opts = [], 0, [], []
+        if df is not None:
+            total = len(df)
+            res = apply_filters(df, params, held=_held_symbols(),
+                                watching=watching)
+            res = res.astype(object).where(pd.notna(res), None)
+            rows = res.to_dict('records')
+            sector_opts = sorted(x for x in df['Sector'].dropna().unique() if x)
+            asset_opts = sorted(x for x in df['Asset_Class'].dropna().unique() if x)
+        treasury = universe_data.read_status(
+            os.path.join(universe_dir, universe_data.TREASURY_FILE)) or {}
+        uni_path = os.path.join(universe_dir, universe_data.UNIVERSE_FILE)
+        asof_hours = ((pd.Timestamp.now().timestamp() - os.path.getmtime(uni_path))
+                      / 3600.0) if os.path.exists(uni_path) else None
+        return render_template(
+            'discover.html', title='Discover', has_universe=df is not None,
+            rows=rows, cols=DISCOVER_COLS, matched=len(rows), total=total,
+            form=form_state, warnings=warnings,
+            sector_opts=sector_opts, asset_opts=asset_opts,
+            range_fields=[(k, humanize(v[0])) for k, v in RANGE_FIELDS.items()],
+            sort_options=sorted(SORT_COLUMNS),
+            treasury=treasury, asof_hours=asof_hours,
+            ai_available=bool(os.environ.get('ANTHROPIC_API_KEY')),
+            refresh_running=_refresh_running(),
+            **base_ctx('discover'))
+
+    @app.route('/discover/ai', methods=['POST'])
+    def discover_ai():
+        _require_page_post()
+        query = str((request.get_json(silent=True) or {}).get('query') or '').strip()
+        if not query:
+            abort(400, 'empty query')
+        ctx = ai_screener.build_context(app_data_dir, data_dir, _universe_df())
+        try:
+            return ai_screener.query_to_filters(query, ctx)
+        except ai_screener.AiScreenerError as e:
+            return {'error': str(e)}, 503
+
+    @app.route('/discover/watchlist', methods=['POST'])
+    def discover_watchlist():
+        _require_page_post()
+        sym = str((request.get_json(silent=True) or {}).get('symbol') or '')
+        norm = sym.strip().upper().replace('/', '-')
+        held = {s.upper().replace('/', '-') for s in _held_symbols()}
+        if norm and norm in held:
+            return {'status': 'held'}
+        result = append_watchlist(sym, watchlist_path)
+        if result == 'invalid':
+            abort(400, f'invalid symbol {sym!r}')
+        return {'status': result}
+
+    @app.route('/discover/refresh', methods=['POST'])
+    def discover_refresh():
+        _require_page_post()
+        if _refresh_running():
+            return {'error': 'a refresh is already running'}, 409
+        mode = (request.get_json(silent=True) or {}).get('mode', 'quick')
+        os.makedirs(universe_dir, exist_ok=True)
+        cmd = [sys.executable, os.path.join(root_dir, 'refresh_universe.py'),
+               '--status-file', status_path, '--universe-dir', universe_dir]
+        if mode == 'full':
+            cmd.append('--full')
+        log = open(os.path.join(universe_dir, 'refresh.log'), 'w')
+        _refresh_proc['proc'] = subprocess.Popen(
+            cmd, cwd=root_dir, stdout=log, stderr=subprocess.STDOUT,
+            start_new_session=True)
+        return {'status': 'started', 'mode': mode}, 202
+
+    @app.route('/discover/refresh/status')
+    def discover_refresh_status():
+        st = universe_data.read_status(status_path) or {}
+        return {**st, 'running': _refresh_running()}
+
     @app.errorhandler(404)
     @app.errorhandler(400)
+    @app.errorhandler(403)
     def _plain_error(e):
         return Response(f'{e.code}: {e.description}\n', status=e.code,
                         mimetype='text/plain')

@@ -17,9 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # also read os.environ at their own import time. Don't reorder these imports.
 from run_pipeline import DATA_DIR, DATA_STATE_DIR, load_last_run
 from ai_review import weekly_deep_review
+from app_data_io import panel_url
 from telegram_alert import send_telegram
-
-PANEL_URL = os.getenv('FIDATA_PANEL_URL', 'http://localhost:9000/fidata')
 
 
 def _sector_summary_by_gics(combined) -> list[dict]:
@@ -46,11 +45,22 @@ if __name__ == '__main__':
     with open(out_path, 'w') as f:
         json.dump(sections, f, indent=2)
 
+    # This job silently produced four empty sections for weeks: the model had
+    # started writing markdown headers ("## Rebalancing:") that the section
+    # parser didn't recognize, and "(no content)" x4 still exited 0. Say so
+    # loudly instead of shipping a hollow report.
+    if not any(sections.values()):
+        print('ERROR: every section parsed empty — check ai_review.split_sections '
+              'against the model output', file=sys.stderr)
+
     digest_lines = [f'Weekly portfolio review ({today_str}):']
+    if not any(sections.values()):
+        digest_lines.append('⚠ the review came back empty — section parsing '
+                            'is broken, see the service log')
     for name, text in sections.items():
         first_line = text.splitlines()[0] if text else '(no content)'
         digest_lines.append(f'{name}: {first_line[:120]}')
-    digest_lines.append(f'\nFull report: {PANEL_URL}/{today_str}')
+    digest_lines.append(f"\nFull report: {panel_url(f'fidata/{today_str}')}")
     digest = '\n'.join(digest_lines)
 
     send_telegram(digest)

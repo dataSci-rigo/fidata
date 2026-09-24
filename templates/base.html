@@ -82,7 +82,8 @@
                       ('accounts','/accounts','Accounts'), ('sectors','/sectors','Sectors'),
                       ('flags','/flags','Flags'), ('analysts','/analysts','Analysts'),
                       ('risk','/risk','Risk'), ('capital','/capital','Capital'),
-                      ('chart','/chart','Chart')] %}
+                      ('chart','/chart','Chart'), ('news','/news','News'),
+                      ('discover','/discover','Discover')] %}
       {% for key, href, label in links %}
         <a href="{{ href }}" class="{{ 'on' if active == key }}">{{ label }}</a>
       {% endfor %}

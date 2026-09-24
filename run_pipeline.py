@@ -56,6 +56,7 @@ from alerts import (
     market_closed_notice, save_snapshot,
 )
 from market_data import asia_open_summary, load_watchlist, us_market_open
+from news import build_news_feed
 from telegram_alert import send_telegram
 
 DATA_DIR = _DATA_DIR
@@ -76,6 +77,8 @@ ALERTED_EARNINGS_FILE = os.path.join(DATA_STATE_DIR, 'alerted_earnings.json')
 ALERTED_BREAKOUTS_FILE = os.path.join(DATA_STATE_DIR, 'alerted_breakouts.json')
 ALERTED_SPLITS_FILE = os.path.join(DATA_STATE_DIR, 'alerted_splits.json')
 MARKET_NOTICE_FILE = os.path.join(DATA_STATE_DIR, 'market_closed_notice.json')
+NEWS_FEED_FILE = os.path.join(DATA_STATE_DIR, 'news_feed.json')
+NEWS_SEEN_FILE = os.path.join(DATA_STATE_DIR, 'news_seen.json')
 WATCHLIST_FILE = os.path.join(DATA_DIR, 'watchlist.txt')
 SPLITS_FILE = os.path.join(DATA_STATE_DIR, splits.CACHE_NAME)
 EFFICIENT_FRONTIER_PNG = os.path.join(DATA_DIR, 'efficient_frontier.png')
@@ -255,8 +258,18 @@ def run() -> dict:
 
     save_snapshot(combined, LAST_SNAPSHOT_FILE)
 
+    # News: ungated by market hours (stories break off-hours) and deliberately
+    # NOT part of `messages` — it reaches you on the /positions page and once
+    # a day inside the daily review, never as its own notification. Fenced so
+    # a yfinance/Anthropic hiccup can't cost us the whole pipeline run.
+    news_feed = {}
+    try:
+        news_feed = build_news_feed(combined, NEWS_FEED_FILE, NEWS_SEEN_FILE) or {}
+    except Exception as e:
+        print(f'WARNING: news feed generation failed: {e}')
+
     return {'combined': combined, 'hist_df': hist_df, 'tx_df': tx_df, 'sold_df': sold_df,
-            'earn_cache': earn_cache, 'alerts_sent': messages,
+            'earn_cache': earn_cache, 'alerts_sent': messages, 'news': news_feed,
             'metrics': metrics, 'rf_annual': rf_annual}
 
 
@@ -282,7 +295,14 @@ def load_last_run() -> dict:
     for col in combined.columns:
         if col not in ('Cost_Basis_Source', 'Quote_Type', 'Sector', 'Cap_Tier',
                        'Vol_Tier', 'Consensus', 'First_Buy_Date'):
-            combined[col] = pd.to_numeric(combined[col], errors='ignore')
+            # pandas 3 removed errors='ignore'; this try/except is the
+            # documented replacement (leave the column alone when any value
+            # won't convert). Under pandas 3 the old call raised outright,
+            # which broke every review job the moment pandas was upgraded.
+            try:
+                combined[col] = pd.to_numeric(combined[col])
+            except (TypeError, ValueError):
+                pass
 
     if os.path.exists(EARN_FILE):
         earn_cache = pd.read_csv(EARN_FILE, index_col='Symbol', parse_dates=['Next_Earnings'])
@@ -313,11 +333,16 @@ def load_last_run() -> dict:
         with open(LAST_ALERTS_FILE) as f:
             alerts_sent = json.load(f).get('messages', [])
 
+    news_feed = {}
+    if os.path.exists(NEWS_FEED_FILE):
+        with open(NEWS_FEED_FILE) as f:
+            news_feed = json.load(f)
+
     split_table = splits.load_table(SPLITS_FILE)
     return {'combined': combined, 'hist_df': hist_df,
             'tx_df': load_transactions(BUYSELL_DIR, split_table=split_table),
             'sold_df': load_realized_lots(BUYSELL_DIR, CUTOFF, ACCOUNTS_DIR),
-            'earn_cache': earn_cache, 'alerts_sent': alerts_sent,
+            'earn_cache': earn_cache, 'alerts_sent': alerts_sent, 'news': news_feed,
             'metrics': metrics, 'rf_annual': rf_annual}
 
 

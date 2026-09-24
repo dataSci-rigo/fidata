@@ -18,7 +18,7 @@ from local_server import LocalOnlyError, create_app
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 ROUTES = ['/', '/holdings', '/accounts', '/sectors', '/flags', '/analysts',
-          '/risk', '/capital', '/chart', '/review']
+          '/risk', '/capital', '/chart', '/review', '/discover', '/news']
 
 
 @pytest.fixture(autouse=True)
@@ -166,3 +166,45 @@ def test_unnamed_account_falls_back(live_client):
     """.env has 9 ACC_* entries for 10 accounts (no ACC_898)."""
     body = live_client.get('/accounts').data.decode()
     assert 'Account ' in body or 'ACC_' not in body
+
+
+# ── news page ────────────────────────────────────────────────────────────────
+
+def _plant_news(tmp_path, curated=True):
+    import json
+    data = tmp_path / 'data'
+    data.mkdir(exist_ok=True)
+    (data / 'news_feed.json').write_text(json.dumps({
+        'generated_at': '2026-09-23T19:02:11-07:00', 'curated': curated,
+        'position_stories': [{'id': 'p1', 'symbol': 'NVDA',
+                              'title': 'Nvidia ships a new chip',
+                              'publisher': 'Reuters', 'url': 'https://x/p1',
+                              'published_at': '2026-09-23T14:30:00Z',
+                              'summary': 'chip stuff', 'priority_score': 5.0,
+                              'first_seen': '2026-09-23'}],
+        'market_stories': [{'id': 'm1', 'symbol': 'SPY',
+                            'title': 'Fed holds rates steady',
+                            'publisher': 'AP', 'url': 'https://x/m1',
+                            'published_at': '2026-09-23T13:00:00Z',
+                            'summary': '', 'why': 'repricing everywhere',
+                            'first_seen': '2026-09-23'}]}))
+
+
+def test_news_page_renders_planted_feed(tmp_path):
+    _plant_news(tmp_path)
+    app = create_app(app_data_dir=str(tmp_path / 'app_data'),
+                     data_dir=str(tmp_path / 'data'), root_dir=str(tmp_path))
+    app.config.update(TESTING=True)
+    body = app.test_client().get('/news').data.decode()
+    assert 'Nvidia ships a new chip' in body and 'https://x/p1' in body
+    assert 'Fed holds rates steady' in body and 'repricing everywhere' in body
+    assert 'NVDA' in body and 'Reuters' in body
+    assert 'AI curation unavailable' not in body
+
+
+def test_news_page_flags_fallback_ranking(tmp_path):
+    _plant_news(tmp_path, curated=False)
+    app = create_app(app_data_dir=str(tmp_path / 'app_data'),
+                     data_dir=str(tmp_path / 'data'), root_dir=str(tmp_path))
+    app.config.update(TESTING=True)
+    assert 'AI curation unavailable' in app.test_client().get('/news').data.decode()

@@ -1,0 +1,9 @@
+[Unit]
+Description=fiData discovery-universe weekly refresh (laptop only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ai1/Documents/fiData
+ExecStart=/home/ai1/anaconda3/envs/p312/bin/python refresh_universe.py --full

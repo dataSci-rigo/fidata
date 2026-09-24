@@ -1,0 +1,370 @@
+# fiData discovery-universe ETF seed list.
+# Format: SYMBOL<whitespace>TAG   # optional comment (name)
+# TAG prefix drives Asset_Class in universe.csv:
+#   bond_*        -> Bond          intl_*   -> International
+#   commodity/gold/crypto -> Commodity     real_estate -> Real Estate
+#   mixed/covered_call/preferred -> Mixed   everything else -> Equity
+# Curated 2026-09-23. Add/remove lines freely; next refresh picks them up.
+
+# ── Broad US market ──────────────────────────────────────────────
+SPY   broad_us       # S&P 500
+VOO   broad_us       # S&P 500 (Vanguard)
+IVV   broad_us       # S&P 500 (iShares)
+SPLG  broad_us       # S&P 500 low cost
+VTI   broad_us       # Total US market
+QQQ   broad_us       # Nasdaq-100
+QQQM  broad_us       # Nasdaq-100 low cost
+DIA   broad_us       # Dow 30
+IWM   broad_us       # Russell 2000
+IJH   broad_us       # S&P MidCap 400
+IJR   broad_us       # S&P SmallCap 600
+VB    broad_us       # Small-cap (Vanguard)
+RSP   broad_us       # S&P 500 equal weight
+
+# ── Style / factor / dividend ────────────────────────────────────
+VTV   factor         # Large value
+VUG   factor         # Large growth
+IWD   factor         # Russell 1000 value
+IWF   factor         # Russell 1000 growth
+MTUM  factor         # Momentum
+VLUE  factor         # Value factor
+QUAL  factor         # Quality factor
+USMV  factor         # Min volatility USA
+SPLV  factor         # S&P 500 low volatility
+SPHQ  factor         # S&P 500 quality
+SPMO  factor         # S&P 500 momentum
+COWZ  factor         # Free-cash-flow cows
+MOAT  factor         # Wide-moat
+SCHD  dividend       # Dividend 100
+VIG   dividend       # Dividend appreciation
+DGRO  dividend       # Dividend growth
+NOBL  dividend       # Dividend aristocrats
+SDY   dividend       # High-yield dividend aristocrats
+HDV   dividend       # High dividend
+VYM   dividend       # High dividend yield
+DVY   dividend       # Select dividend
+
+# ── Sectors ──────────────────────────────────────────────────────
+XLK   sector_tech    # Technology Select
+VGT   sector_tech    # Info tech (Vanguard)
+SMH   sector_tech    # Semiconductors (VanEck)
+SOXX  sector_tech    # Semiconductors (iShares)
+IGV   sector_tech    # Software
+XLF   sector_fin     # Financials
+KRE   sector_fin     # Regional banks
+KBE   sector_fin     # Banks
+XLV   sector_health  # Health care
+XBI   sector_health  # Biotech (equal-ish weight)
+IBB   sector_health  # Biotech (cap weight)
+XLE   sector_energy  # Energy
+XOP   sector_energy  # Oil & gas E&P
+OIH   sector_energy  # Oil services
+XLI   sector_industrial  # Industrials
+PAVE  sector_industrial  # US infrastructure
+ITA   theme_defense  # Aerospace & defense (iShares)
+PPA   theme_defense  # Aerospace & defense (Invesco)
+XAR   theme_defense  # Aerospace & defense (SPDR equal weight)
+XLY   sector_consumer    # Consumer discretionary
+XLP   sector_consumer    # Consumer staples
+XLU   sector_utility     # Utilities
+XLB   sector_materials   # Materials
+XLRE  sector_realestate  # Real estate select
+XLC   sector_comm        # Communication services
+FDN   sector_comm        # Internet
+
+# ── Themes ───────────────────────────────────────────────────────
+BOTZ  theme_ai       # Robotics & AI (Global X)
+ROBO  theme_ai       # Robotics & automation
+AIQ   theme_ai       # Artificial intelligence & tech
+IRBO  theme_ai       # Robotics & AI (iShares)
+SKYY  theme_ai       # Cloud computing
+WCLD  theme_ai       # Cloud (WisdomTree)
+CIBR  theme_ai       # Cybersecurity (First Trust)
+HACK  theme_ai       # Cybersecurity
+XT    theme_ai       # Exponential technologies
+ARKK  theme_ai       # ARK innovation
+TAN   theme_clean    # Solar
+ICLN  theme_clean    # Global clean energy
+URA   theme_clean    # Uranium
+LIT   theme_clean    # Lithium & battery
+IBIT  crypto         # Bitcoin (iShares)
+ETHA  crypto         # Ethereum (iShares)
+
+# ── International ────────────────────────────────────────────────
+VEA   intl_dev       # Developed ex-US
+IEFA  intl_dev       # Core MSCI EAFE
+EFA   intl_dev       # MSCI EAFE
+VXUS  intl_dev       # Total intl ex-US
+ACWI  intl_dev       # All-country world
+VT    intl_dev       # Total world
+VGK   intl_dev       # Europe
+EZU   intl_dev       # Eurozone
+VWO   intl_em        # Emerging markets (Vanguard)
+IEMG  intl_em        # Core EM
+EEM   intl_em        # MSCI EM
+EWJ   intl_country   # Japan
+EWY   intl_country   # South Korea
+EWT   intl_country   # Taiwan
+EWZ   intl_country   # Brazil
+EWU   intl_country   # United Kingdom
+EWG   intl_country   # Germany
+EWQ   intl_country   # France
+EWI   intl_country   # Italy
+EWP   intl_country   # Spain
+EPOL  intl_country   # Poland
+EWA   intl_country   # Australia
+EWC   intl_country   # Canada
+EWH   intl_country   # Hong Kong
+EWW   intl_country   # Mexico
+INDA  intl_country   # India
+EPI   intl_country   # India earnings
+FXI   intl_country   # China large-cap
+MCHI  intl_country   # MSCI China
+KWEB  intl_country   # China internet
+ILF   intl_em        # Latin America 40
+
+# ── Bonds / fixed income ─────────────────────────────────────────
+AGG   bond_agg       # US aggregate
+BND   bond_agg       # Total bond market
+BNDX  bond_agg       # Intl bonds hedged
+SGOV  bond_treasury  # 0-3 month T-bills
+BIL   bond_treasury  # 1-3 month T-bills
+SHV   bond_treasury  # Short treasury
+SHY   bond_treasury  # 1-3 year treasury
+VGSH  bond_treasury  # Short-term treasury
+IEI   bond_treasury  # 3-7 year treasury
+VGIT  bond_treasury  # Intermediate treasury
+IEF   bond_treasury  # 7-10 year treasury
+GOVT  bond_treasury  # All-maturity treasury
+VGLT  bond_treasury  # Long-term treasury
+TLT   bond_treasury  # 20+ year treasury
+TIP   bond_tips      # TIPS
+SCHP  bond_tips      # TIPS (Schwab)
+VTIP  bond_tips      # Short-term TIPS
+LQD   bond_corp      # Investment-grade corporate
+VCIT  bond_corp      # Intermediate corporate
+VCSH  bond_corp      # Short-term corporate
+VCLT  bond_corp      # Long-term corporate
+IGSB  bond_corp      # 1-5 year IG corporate
+HYG   bond_hy        # High yield
+JNK   bond_hy        # High yield (SPDR)
+SJNK  bond_hy        # Short-duration high yield
+BKLN  bond_hy        # Senior loans
+MUB   bond_muni      # National munis
+VTEB  bond_muni      # Tax-exempt (Vanguard)
+HYD   bond_muni      # High-yield munis
+EMB   bond_em        # EM USD sovereign
+PCY   bond_em        # EM sovereign (Invesco)
+FLOT  bond_float     # Floating rate IG
+USFR  bond_float     # Floating rate treasury
+
+# ── Real estate ──────────────────────────────────────────────────
+VNQ   real_estate    # US REITs
+SCHH  real_estate    # US REITs (Schwab)
+IYR   real_estate    # US real estate
+VNQI  real_estate    # Intl REITs
+
+# ── Commodities ──────────────────────────────────────────────────
+GLD   gold           # Gold
+GLDM  gold           # Gold mini
+IAU   gold           # Gold (iShares)
+SLV   commodity      # Silver
+GDX   gold           # Gold miners
+GDXJ  gold           # Junior gold miners
+PDBC  commodity      # Diversified commodities (no K-1)
+DBC   commodity      # Commodity index
+USO   commodity      # Crude oil
+DBA   commodity      # Agriculture
+CPER  commodity      # Copper
+
+# ── Mixed / income overlays ──────────────────────────────────────
+AOA   mixed          # 80/20 allocation
+AOR   mixed          # 60/40 allocation
+AOM   mixed          # 40/60 allocation
+NTSX  mixed          # 90/60 levered balanced
+JEPI  covered_call   # Equity premium income
+JEPQ  covered_call   # Nasdaq premium income
+QYLD  covered_call   # Nasdaq covered call
+XYLD  covered_call   # S&P covered call
+PFF   preferred      # Preferred stock
+PGX   preferred      # Preferred (Invesco)
+CWB   preferred      # Convertibles
+
+# ════════════════════════════════════════════════════════════════
+# Auto-selected additions (2026-09-23): official Nasdaq Trader ETF
+# directory ranked by 45-day average dollar volume, most liquid per
+# diversity bucket; leveraged/inverse/ETN and same-exposure clones of
+# the hand-curated list above were excluded. See REFACTOR_PLAN Phase 10.
+# ════════════════════════════════════════════════════════════════
+
+# ── Bonds — additional (auto-selected) ──
+USHY  bond_extra     # iShares Broad USD High Yield Corporate Bond ETF
+BOXX  bond_extra     # Alpha Architect 1-3 Month Box ETF
+JAAA  bond_extra     # Janus Henderson AAA CLO ETF
+MBB   bond_extra     # iShares MBS ETF
+VBIL  bond_extra     # Vanguard 0-3 Month Treasury Bill ETF
+SPIB  bond_extra     # SPDR Portfolio Intermediate Term Corporate Bond ETF
+SPSB  bond_extra     # SPDR Portfolio Short Term Corporate Bond ETF
+BSV   bond_extra     # Vanguard Short-Term Bond ETF
+IQMM  bond_extra     # ProShares GENIUS Money Market ETF
+IUSB  bond_extra     # iShares Core Universal USD Bond ETF
+FBND  bond_extra     # Fidelity Total Bond ETF
+SPTL  bond_extra     # SPDR Portfolio Long Term Treasury ETF
+SPHY  bond_extra     # SPDR Portfolio High Yield Bond ETF
+SCHO  bond_extra     # Schwab Short-Term U.S. Treasury ETF
+IGIB  bond_extra     # iShares 5-10 Year Investment Grade Corporate Bond ETF
+PAAA  bond_extra     # PGIM AAA CLO ETF
+TLH   bond_extra     # iShares 10-20 Year Treasury Bond ETF
+BIV   bond_extra     # Vanguard Intermediate-Term Bond ETF
+USIG  bond_extra     # iShares Broad USD Investment Grade Corporate Bond ETF
+PYLD  bond_extra     # PIMCO Multisector Bond Active Exchange-Traded Fund
+IGLB  bond_extra     # iShares 10  Year Investment Grade Corporate Bond ETF
+
+# ── Single countries / frontier (auto-selected) ──
+EMXC  intl_country   # iShares MSCI Emerging Markets ex China ETF
+ASHR  intl_country   # Xtrackers Harvest CSI 300 China A-Shares ETF
+AAXJ  intl_country   # iShares MSCI All Country Asia ex Japan ETF
+DXJ   intl_country   # WisdomTree Japan Hedged Equity Fund
+FLKR  intl_country   # Franklin FTSE South Korea ETF
+FLTW  intl_country   # Franklin FTSE Taiwan ETF
+EWS   intl_country   # iShares MSCI Singapore ETF
+FLJP  intl_country   # Franklin FTSE Japan ETF
+EWL   intl_country   # iShares MSCI Switzerland ETF
+KSTR  intl_country   # KraneShares China Technology & Semiconductor STAR 50 Index
+BBCA  intl_country   # JPMorgan BetaBuilders Canada ETF
+FXY   intl_country   # Invesco CurrencyShares Japanese Yen Trust
+KSA   intl_country   # iShares MSCI Saudi Arabia ETF
+ECH   intl_country   # iShares MSCI Chile ETF
+EWN   intl_country   # iShares MSCI Netherlands Index Fund
+ARGT  intl_country   # Global X MSCI Argentina ETF
+VNM   intl_country   # VanEck Vietnam ETF
+GREK  intl_country   # Global X MSCI Greece ETF
+
+# ── International styles (auto-selected) ──
+EFV   intl_broad     # iShares MSCI EAFE Value ETF
+AVEM  intl_broad     # Avantis Emerging Markets Equity ETF
+SCZ   intl_broad     # iShares MSCI EAFE Small-Cap ETF
+FNDF  intl_broad     # Schwab Fundamental International Equity ETF
+AVDE  intl_broad     # Avantis International Equity ETF
+EFG   intl_broad     # iShares MSCI EAFE Growth ETF
+VYMI  intl_broad     # Vanguard International High Dividend Yield ETF
+AVDV  intl_broad     # Avantis International Small Cap Value ETF
+DFIV  intl_broad     # Dimensional International Value ETF
+FNDE  intl_broad     # Schwab Fundamental Emerging Markets Equity ETF
+FENI  intl_broad     # Fidelity Enhanced International ETF
+EFAV  intl_broad     # iShares MSCI EAFE Min Vol Factor ETF
+
+# ── Sectors & themes (auto-selected) ──
+XRT   sector_theme   # SPDR S&P Retail ETF
+XHB   sector_theme   # SPDR S&P Homebuilders ETF
+ITB   sector_theme   # iShares U.S. Home Construction ETF
+ARKG  sector_theme   # ARK Genomic Revolution ETF
+SOXQ  sector_theme   # Invesco PHLX Semiconductor ETF
+KBWB  sector_theme   # Invesco KBW Bank ETF
+IHI   sector_theme   # iShares U.S. Medical Devices ETF
+IYW   sector_theme   # iShares U.S. Technology ETF
+BWET  sector_theme   # Breakwave Tanker Shipping ETF
+GRID  sector_theme   # First Trust NASDAQ Clean Edge Smart Grid Infrastructure In
+VDE   sector_theme   # Vanguard Energy ETF
+AIRR  sector_theme   # First Trust RBA American Industrial Renaissance ETF
+FTEC  sector_theme   # Fidelity MSCI Information Technology Index ETF
+KIE   sector_theme   # SPDR S&P Insurance ETF
+VFH   sector_theme   # Vanguard Financials ETF
+SHLD  sector_theme   # Global X Defense Tech ETF
+VHT   sector_theme   # Vanguard Health Care ETF
+AMLP  sector_theme   # Alerian MLP ETF
+EUFN  sector_theme   # iShares MSCI Europe Financials ETF
+BUG   sector_theme   # Global X Cybersecurity ETF
+VPU   sector_theme   # Vanguard Utilities ETF
+VOX   sector_theme   # Vanguard Communication Services  ETF
+FTXL  sector_theme   # First Trust Nasdaq Semiconductor ETF
+IGF   sector_theme   # iShares Global Infrastructure ETF
+IYF   sector_theme   # iShares U.S. Financial ETF
+PSI   sector_theme   # Invesco Semiconductors ETF
+IYT   sector_theme   # iShares U.S. Transportation ETF
+QTEC  sector_theme   # First Trust NASDAQ-100-Technology Sector Index Fund
+IYH   sector_theme   # iShares U.S. Healthcare ETF
+XSD   sector_theme   # SPDR S&P Semiconductor ETF
+QTUM  sector_theme   # Defiance Quantum ETF
+IYE   sector_theme   # iShares U.S. Energy ETF
+CQQQ  sector_theme   # Invesco China Technology ETF
+FENY  sector_theme   # Fidelity MSCI Energy Index ETF
+IYZ   sector_theme   # iShares U.S. Telecommunications ETF
+VIS   sector_theme   # Vanguard Industrials ETF
+IYM   sector_theme   # iShares U.S. Basic Materials ETF
+CHAT  sector_theme   # Roundhill Generative AI & Technology ETF
+IXC   sector_theme   # iShares Global Energy ETF
+VDC   sector_theme   # Vanguard Consumer Staples ETF
+AIPO  sector_theme   # Defiance AI & Power Infrastructure ETF
+NASA  sector_theme   # Tema Space Innovators ETF
+ARTY  sector_theme   # iShares Future AI & Tech ETF
+FTXH  sector_theme   # First Trust Nasdaq Pharmaceuticals ETF
+PHO   sector_theme   # Invesco Water Resources ETF
+
+# ── Factor / style / alternatives (auto-selected) ──
+VO    factor_x       # Vanguard Morningstar Mid-Cap ETF
+AVLV  factor_x       # Avantis U.S. Large Cap Value ETF
+CGDV  factor_x       # Capital Group Dividend Value ETF
+IWO   factor_x       # iShares Russell 2000 Growth Fund
+AVUV  factor_x       # Avantis U.S. Small Cap Value ETF
+IWR   factor_x       # iShares Russell Mid-Cap ETF
+CGGR  factor_x       # Capital Group Growth ETF
+VFLO  factor_x       # VictoryShares Free Cash Flow ETF
+IWN   factor_x       # iShares Russell 2000 Value ETF
+MGK   factor_x       # Vanguard Morningstar Mega Cap Growth ETF
+IWY   factor_x       # iShares Russell Top 200 Growth ETF
+VOOG  factor_x       # Vanguard S&P 500 Growth ETF
+SPSM  factor_x       # SPDR Portfolio S&P 600 Small Cap ETF
+SCHA  factor_x       # Schwab U.S. Small-Cap ETF
+IUSG  factor_x       # iShares Core S&P U.S. Growth ETF
+SPMD  factor_x       # SPDR Portfolio S&P 400 Mid Cap ETF
+PVAL  factor_x       # Putnam Focused Large Cap Value ETF
+RDVY  factor_x       # First Trust Rising Dividend Achievers ETF
+
+# ── Commodities & miners (auto-selected) ──
+COPX  commodity_x    # Global X Copper Miners ETF
+XME   commodity_x    # SPDR S&P Metals & Mining ETF
+PSLV  commodity_x    # Sprott Physical Silver Trust ETV
+UNG   commodity_x    # United States Natural Gas Fund LP
+SILJ  commodity_x    # Amplify Junior Silver Miners ETF
+SIL   commodity_x    # Global X Silver Miners ETF
+BNO   commodity_x    # United States Brent Oil Fund, LP ETV
+RING  commodity_x    # iShares MSCI Global Gold Miners ETF
+AAAU  commodity_x    # Goldman Sachs Physical Gold ETF Shares
+REMX  commodity_x    # VanEck Rare Earth and Strategic Metals ETF
+PICK  commodity_x    # iShares MSCI Global Select Metals & Mining Producers Fund
+NLR   commodity_x    # VanEck Uranium and Nuclear ETF
+HGER  commodity_x    # Harbor Commodity All-Weather Strategy ETF
+PPLT  commodity_x    # abrdn Physical Platinum Shares ETF
+GSG   commodity_x    # iShares GSCI Commodity-Indexed Trust Fund
+
+# ── Options income (auto-selected) ──
+QQQI  covered_call   # NEOS Nasdaq 100 High Income ETF
+GPIQ  covered_call   # Goldman Sachs Nasdaq-100 Premium Income ETF
+GPIX  covered_call   # Goldman Sachs S&P 500 Premium Income ETF
+CSHI  covered_call   # NEOS Enhanced Income 1-3 Month T-Bill ETF
+TLTW  covered_call   # iShares 20+ Year Treasury Bond BuyWrite Strategy ETF
+FTHI  covered_call   # First Trust BuyWrite Income ETF
+QDTE  covered_call   # Roundhill Nasdaq-100 0DTE Covered Call ETF Strategy ETF
+
+# ── Buffered (auto-selected) ──
+BUFR  mixed_buffer   # FT Vest Laddered Buffer ETF
+
+# ── Real estate — additional (auto-selected) ──
+REET  real_estate_x  # iShares Global REIT ETF
+DFAR  real_estate_x  # Dimensional US Real Estate ETF
+USRT  real_estate_x  # iShares Core U.S. REIT ETF
+RWR   real_estate_x  # SPDR Dow Jones REIT ETF
+
+# ── Crypto (auto-selected) ──
+BITO  crypto         # ProShares Bitcoin ETF
+FBTC  crypto         # Fidelity Wise Origin Bitcoin Fund
+ETH   crypto         # Grayscale Ethereum Staking Mini ETF Shares
+FETH  crypto         # Fidelity Ethereum Fund
+BITB  crypto         # Bitwise Bitcoin ETF
+
+# ── Popular / uncategorized (auto-selected) ──
+DRAM  theme_other    # Roundhill Memory ETF
+MAGS  theme_other    # Roundhill Magnificent Seven ETF
+IWB   theme_other    # iShares Russell 1000 ETF
+JETS  theme_other    # U.S. Global Jets ETF

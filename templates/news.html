@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block body %}
+  {% set pos = feed.get('position_stories') or [] %}
+  {% set mkt = feed.get('market_stories') or [] %}
+  {% if not pos and not mkt %}
+    <div class="empty">No news feed yet — run <code>python run_pipeline.py</code>.</div>
+  {% else %}
+    <p class="cap">
+      {% if feed.get('generated_at') %}generated {{ feed.generated_at[:19]|replace('T',' ') }}{% endif %}
+      {% if feed.get('curated') is false %} · market stories ranked by recency (AI curation unavailable){% endif %}
+    </p>
+
+    <h2>Your positions ({{ pos|length }})</h2>
+    {% if pos %}
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Symbol</th><th>Story</th><th>Source</th><th>Published</th></tr></thead>
+          <tbody>
+            {% for s in pos %}
+              <tr>
+                <td data-v="{{ s.priority_score }}">{{ s.symbol }}</td>
+                <td style="text-align:left;white-space:normal">
+                  <a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.title }}</a>
+                  {% if s.summary %}<div class="cap">{{ s.summary[:180] }}</div>{% endif %}
+                </td>
+                <td>{{ s.publisher }}</td>
+                <td data-v="{{ s.published_at }}">{{ s.published_at[:16]|replace('T',' ') }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">ranked by volatility × position size — where a headline moves the most money</p>
+    {% else %}
+      <div class="empty">No fresh stories on your holdings.</div>
+    {% endif %}
+
+    <h2>Market ({{ mkt|length }})</h2>
+    {% if mkt %}
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Story</th><th>Source</th><th>Published</th></tr></thead>
+          <tbody>
+            {% for s in mkt %}
+              <tr>
+                <td style="text-align:left;white-space:normal">
+                  <a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.title }}</a>
+                  {% if s.why %}<div class="cap">{{ s.why }}</div>{% endif %}
+                </td>
+                <td>{{ s.publisher }}</td>
+                <td data-v="{{ s.published_at }}">{{ s.published_at[:16]|replace('T',' ') }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty">No market stories.</div>
+    {% endif %}
+  {% endif %}
+{% endblock %}

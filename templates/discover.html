@@ -1,0 +1,267 @@
+{% extends 'base.html' %}
+{% block body %}
+
+{# ── treasury yields ── #}
+{% if treasury %}
+<div class="cards" style="margin-bottom:14px">
+  {% for label in ('13-week','5-year','10-year','30-year') %}
+    {% if treasury.get(label) is not none %}
+    <div class="card"><div class="k">{{ label }} treasury</div>
+      <div class="v">{{ '%.2f'|format(treasury[label]) }}%</div></div>
+    {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if not has_universe %}
+<div class="empty">
+  No universe data yet. Run <code>python refresh_universe.py --full</code>
+  (first run downloads fundamentals for ~700 symbols, ~20–30 min) or use the
+  Refresh button below, then reload.
+</div>
+{% endif %}
+
+{# ── AI query box ── #}
+{% if ai_available %}
+<div class="prose" style="margin-bottom:14px">
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <input id="ai-query" class="filter" style="flex:1;min-width:280px"
+           placeholder='e.g. "reduce my volatility", "more AI exposure", "uncorrelated to my portfolio"'>
+    <button class="tabs-btn" id="ai-go" style="background:var(--accent);color:#fff;border:none;border-radius:7px;padding:7px 16px;cursor:pointer">Ask AI</button>
+  </div>
+  <div id="ai-note" class="cap" style="display:none;margin-top:8px"></div>
+</div>
+{% else %}
+<div class="cap" style="margin-bottom:12px">AI query box disabled — set
+  <code>ANTHROPIC_API_KEY</code> in .env to enable it.</div>
+{% endif %}
+
+{# ── filter form ── #}
+<form method="get" id="discover-form">
+  <input type="hidden" name="_form" value="1">
+  <div class="toolbar">
+    <input class="filter" name="text_any" placeholder="theme / text search (comma = OR)"
+           value="{{ form.text_any|join(', ') if form.text_any }}">
+    <span class="cap">Type:</span>
+    {% for qt in ('EQUITY', 'ETF') %}
+      <label class="cap"><input type="checkbox" name="quote_types" value="{{ qt }}"
+        {{ 'checked' if form.quote_types and qt in form.quote_types }}> {{ qt }}</label>
+    {% endfor %}
+    <select name="in_sp500" class="filter" style="min-width:110px">
+      <option value="">S&amp;P 500: any</option>
+      <option value="yes" {{ 'selected' if form.in_sp500 is true }}>in S&amp;P 500</option>
+      <option value="no" {{ 'selected' if form.in_sp500 is false }}>not in S&amp;P 500</option>
+    </select>
+    <select name="in_ndx" class="filter" style="min-width:110px">
+      <option value="">NDX: any</option>
+      <option value="yes" {{ 'selected' if form.in_ndx is true }}>in Nasdaq-100</option>
+      <option value="no" {{ 'selected' if form.in_ndx is false }}>not in Nasdaq-100</option>
+    </select>
+  </div>
+  <div class="toolbar">
+    <label class="cap">Asset class
+      <select name="asset_classes" class="filter" multiple size="3" style="min-width:150px;display:block">
+        {% for a in asset_opts %}
+        <option value="{{ a }}" {{ 'selected' if form.asset_classes and a in form.asset_classes }}>{{ a }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="cap">Sector
+      <select name="sectors" class="filter" multiple size="3" style="min-width:200px;display:block">
+        {% for s in sector_opts %}
+        <option value="{{ s }}" {{ 'selected' if form.sectors and s in form.sectors }}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;max-width:860px">
+      {% for key, label in range_fields %}
+      <label class="cap" style="display:inline-flex;flex-direction:column;width:130px">
+        {{ label }}
+        <span style="display:flex;gap:3px">
+          <input class="filter" style="min-width:0;width:62px;padding:4px 6px" name="{{ key }}_min"
+                 placeholder="min" value="{{ form.get(key + '_min', '') }}">
+          <input class="filter" style="min-width:0;width:62px;padding:4px 6px" name="{{ key }}_max"
+                 placeholder="max" value="{{ form.get(key + '_max', '') }}">
+        </span>
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="toolbar">
+    <label class="cap"><input type="checkbox" name="uptrend_only" value="1"
+      {{ 'checked' if form.uptrend_only }}> uptrend only (close &gt; EMA50 &gt; EMA200)</label>
+    <label class="cap"><input type="checkbox" name="exclude_held" value="1"
+      {{ 'checked' if form.exclude_held }}> hide what I own</label>
+    <label class="cap"><input type="checkbox" name="exclude_watchlist" value="1"
+      {{ 'checked' if form.exclude_watchlist }}> hide watchlist</label>
+    <label class="cap">sort
+      <select name="sort_by" class="filter" style="min-width:130px">
+        {% for s in sort_options %}
+        <option value="{{ s }}" {{ 'selected' if form.sort_by == s }}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="cap"><input type="checkbox" name="sort_desc" value="1"
+      {{ 'checked' if form.sort_desc }}> desc</label>
+    <label class="cap">limit
+      <input class="filter" style="min-width:0;width:64px" name="limit" value="{{ form.limit }}">
+    </label>
+    <button style="background:var(--accent);color:#fff;border:none;border-radius:7px;padding:7px 16px;cursor:pointer">Apply</button>
+    <a href="/discover" class="cap">reset</a>
+  </div>
+</form>
+
+{% if warnings %}
+<div class="banner warn">{{ warnings|join(' · ') }}</div>
+{% endif %}
+
+{# ── refresh + counts ── #}
+<div class="toolbar">
+  <span class="count" id="match-count">{{ matched }} of {{ total }} symbols match</span>
+  {% if asof_hours is not none %}
+  <span class="cap">· universe {{ '%.1f'|format(asof_hours) }}h old</span>
+  {% endif %}
+  <span style="flex:1"></span>
+  <button id="refresh-quick" class="cap" style="background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:5px 12px;cursor:pointer">Refresh prices</button>
+  <button id="refresh-full" class="cap" style="background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:5px 12px;cursor:pointer">Full refresh</button>
+  <span id="refresh-status" class="cap">{{ 'refresh running…' if refresh_running }}</span>
+</div>
+
+{# ── results ── #}
+{% if rows %}
+<div class="scroll">
+  <table id="discover-table">
+    <thead><tr><th></th>{% for c in cols %}<th>{{ humanize(c) }}</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td style="text-align:left">
+          {% if r.get('Held') %}<span class="cap">held</span>
+          {% elif r.get('In_Watchlist') %}<span class="cap">watching</span>
+          {% else %}<button class="add-watch cap" data-symbol="{{ r.get('Symbol') }}"
+            style="background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:2px 8px;cursor:pointer">+ watch</button>
+          {% endif %}
+        </td>
+        {% for c in cols %}
+          {% set txt, klass = cell(r.get(c), col_kind(c)) %}
+          <td class="{{ klass if c not in ('Symbol','Name','Asset_Class','Sector') }}"
+              title="{{ r.get('Summary') or '' if c == 'Name' }}"
+              data-v="{{ r.get(c) if r.get(c) is not none }}">{{ txt }}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% elif has_universe %}
+<div class="empty">No symbols match these filters.</div>
+{% endif %}
+
+<script>
+(function () {
+  const HDRS = {'Content-Type': 'application/json', 'X-FiData': '1'};
+
+  // AI query -> fill the form -> normal GET apply (deterministic filtering).
+  const aiGo = document.getElementById('ai-go');
+  if (aiGo) aiGo.addEventListener('click', async () => {
+    const q = document.getElementById('ai-query').value.trim();
+    const note = document.getElementById('ai-note');
+    if (!q) return;
+    note.style.display = 'block';
+    note.textContent = 'asking…';
+    try {
+      const resp = await fetch('/discover/ai', {method: 'POST', headers: HDRS,
+                                                body: JSON.stringify({query: q})});
+      const out = await resp.json();
+      if (!resp.ok) { note.textContent = out.error || ('error ' + resp.status); return; }
+      fillForm(out.params || {});
+      note.textContent = out.rationale || 'filters set';
+      setTimeout(() => document.getElementById('discover-form').submit(), 600);
+    } catch (e) { note.textContent = 'request failed: ' + e; }
+  });
+
+  function fillForm(params) {
+    const form = document.getElementById('discover-form');
+    form.reset();
+    // reset() restores server-rendered state; clear everything first
+    form.querySelectorAll('input[type=text],input:not([type])').forEach(i => { if (i.name !== '_form') i.value = ''; });
+    form.querySelectorAll('input[type=checkbox]').forEach(c => c.checked = false);
+    form.querySelectorAll('select[multiple]').forEach(s => [...s.options].forEach(o => o.selected = false));
+    form.querySelectorAll('select:not([multiple])').forEach(s => s.value = '');
+    // sensible base state the AI builds on
+    setFlag('exclude_held', params.exclude_held !== false);
+    setVal('sort_by', 'sharpe_1yr'); setFlag('sort_desc', true); setVal('limit', '50');
+    for (const [key, val] of Object.entries(params)) {
+      const els = form.querySelectorAll(`[name="${key}"]`);
+      if (!els.length) continue;
+      const el = els[0];
+      if (el.type === 'checkbox' && els.length > 1) {          // checkbox group
+        els.forEach(c => c.checked = (val || []).includes(c.value));
+      } else if (el.type === 'checkbox') {
+        el.checked = !!val;
+      } else if (el.tagName === 'SELECT' && el.multiple) {
+        [...el.options].forEach(o => o.selected = (val || []).includes(o.value));
+      } else if (el.tagName === 'SELECT') {
+        el.value = (val === true) ? 'yes' : (val === false) ? 'no' : String(val);
+      } else {
+        el.value = Array.isArray(val) ? val.join(', ') : String(val);
+      }
+    }
+  }
+  function setVal(name, v) { const el = document.querySelector(`[name="${name}"]`); if (el) el.value = v; }
+  function setFlag(name, v) { const el = document.querySelector(`[name="${name}"]`); if (el) el.checked = !!v; }
+
+  // add-to-watchlist buttons
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.add-watch');
+    if (!btn) return;
+    btn.disabled = true;
+    try {
+      const resp = await fetch('/discover/watchlist', {method: 'POST', headers: HDRS,
+        body: JSON.stringify({symbol: btn.dataset.symbol})});
+      const out = await resp.json().catch(() => ({}));
+      if (resp.ok && (out.status === 'added' || out.status === 'exists')) {
+        btn.outerHTML = '<span class="cap">watching</span>';
+      } else if (resp.ok && out.status === 'held') {
+        btn.outerHTML = '<span class="cap">held</span>';
+      } else { btn.textContent = 'failed'; btn.disabled = false; }
+    } catch (err) { btn.textContent = 'failed'; btn.disabled = false; }
+  });
+
+  // refresh buttons + status polling
+  const statusEl = document.getElementById('refresh-status');
+  async function startRefresh(mode) {
+    const resp = await fetch('/discover/refresh', {method: 'POST', headers: HDRS,
+                                                   body: JSON.stringify({mode})});
+    if (resp.status === 409) { statusEl.textContent = 'refresh already running…'; poll(); return; }
+    if (resp.ok) { statusEl.textContent = 'started…'; poll(); }
+    else statusEl.textContent = 'failed to start (' + resp.status + ')';
+  }
+  document.getElementById('refresh-quick').addEventListener('click', () => startRefresh('quick'));
+  document.getElementById('refresh-full').addEventListener('click', () => startRefresh('full'));
+
+  let polling = false;
+  async function poll() {
+    if (polling) return;
+    polling = true;
+    while (true) {
+      await new Promise(r => setTimeout(r, 2000));
+      let st;
+      try { st = await (await fetch('/discover/refresh/status')).json(); }
+      catch (e) { continue; }
+      if (st.running) {
+        const prog = st.total ? ` ${st.done || 0}/${st.total}` : '';
+        statusEl.textContent = `${st.phase || 'running'}${prog}…`;
+      } else {
+        if (st.phase === 'done') { statusEl.textContent = 'done — reloading'; location.reload(); }
+        else if (st.phase === 'error') statusEl.textContent = 'refresh failed: ' + (st.error || '?');
+        else statusEl.textContent = '';
+        break;
+      }
+    }
+    polling = false;
+  }
+  {% if refresh_running %}poll();{% endif %}
+})();
+</script>
+{% endblock %}

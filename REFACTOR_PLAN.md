@@ -701,3 +701,131 @@ unrunnable — empty `data/`, unconditional plotly import).
   `test_market_data.py`; fixtures `hist_screener.csv`, `ohlc_daily_small.csv` — note
   `.gitignore`'s `*.csv` means the fixtures need `git add -f`). Pre-existing failures
   (3 in test_cost_basis.py, 1 in test_export_schema.py) are unrelated and present on HEAD.
+
+## Phase 10 (2026-09-23): Discovery screener — /discover page + universe ingestion
+
+New-candidate search (stocks / ETFs / bond ETFs the portfolio does NOT hold), as a filter
+system on the local viewer with AI-initialized parameters. Phase 2 (Schwab Trader API live
+quotes + SEC EDGAR earnings-document reader) is planned but not built — see
+~/.claude/plans/look-only-at-the-clever-lovelace.md.
+
+- **Universe** (~830 symbols): S&P 500 + Nasdaq-100 (Wikipedia at refresh time; committed
+  fallbacks `universe/sp500_fallback.txt`, `universe/ndx_fallback.txt` — note the NDX table
+  moved to the dedicated List_of_NASDAQ-100_companies page) + curated `universe/etf_list.txt`
+  (~305 ETFs: ~155 hand-picked + 150 auto-selected 2026-09-23 from the official Nasdaq
+  Trader symbol directory ranked by 45-day dollar volume, most liquid per diversity
+  bucket — frontier/single countries, niche sectors, factor, bonds, commodities —
+  excluding leveraged/inverse/ETN and same-exposure clones; `SYMBOL TAG # name`
+  lines, tag prefix → Asset_Class).
+- **`universe_data.py`** (new): ingestion lib — constituents w/ 3-level fallback, batched 2y
+  close+volume download (`_download_close_volume`, one yf.download per 150-chunk, incremental
+  tail fetch), `compute_metrics` (vol/Sharpe/drawdown via screener.perf_metrics, gains, 52w
+  ratio, EMA flags, beta vs SPY, `Corr_Portfolio` vs the actual portfolio return series
+  `portfolio_daily_returns`, avg dollar volume), throttled+resumable `Ticker.info` cache
+  (`info_cache.json`, oldest-first refresh, failures never cached), treasury yields
+  (^IRX/^FVX/^TNX/^TYX), merge → `data/universe/universe.csv` (all gitignored).
+- **`refresh_universe.py`** (new CLI): quick (default) / `--full` / `--prices-only` /
+  `--info-only` / `--max-info N` / `--sleep`; atomic `universe_status.json` progress file.
+  First full run ≈ 20-30 min (info pass); steady state minutes.
+- **`discover_filters.py`** (new): the one contract shared by web form, AI tool schema and
+  engine — `PARAMS_SPEC` (text_any themes, quote types, asset classes, sectors ±, S&P/NDX
+  tri-states, 15 numeric ranges incl. corr_portfolio/max_drawdown, uptrend/exclude-held
+  flags, sort/limit), `validate_params`, `params_from_args`, pure `apply_filters`
+  (NaN excluded only while a bound on that field is active), `tool_input_schema()`.
+- **`ai_screener.py`** (new): query → filters via ONE forced tool-use call
+  (`tool_choice={'type':'tool'}`, first structured-output use in the repo; anthropic 0.50.0,
+  FIDATA_COACH_MODEL default claude-sonnet-4-6). Context assembled from on-disk artifacts
+  only (mpt_summary/combined/sectors + universe value ranges); lazy client so a missing key
+  degrades the AI box instead of crashing the server. Output re-validated server-side.
+- **`local_server.py`**: `/discover` (GET, filters in the query string = shareable state) +
+  the viewer's first write endpoints, all POST-only behind an `X-FiData: 1` header (CSRF):
+  `/discover/ai`, `/discover/watchlist` (append-only via new
+  `market_data.append_watchlist`, comments preserved), `/discover/refresh` (detached
+  refresh_universe.py subprocess; 409 while running) + `/discover/refresh/status` polling.
+  Docstring contract amended: GET surface stays read-only/no-network.
+- **`templates/discover.html`** (new) + Discover nav link; treasury cards, AI box, full
+  filter form (range inputs generated from PARAMS_SPEC so AI params always round-trip),
+  progress-polling refresh buttons, results table with +watch/held/watching action column.
+- **Weekly refresh**: `systemd/user/fidata-universe.{service,timer}` — laptop-only USER
+  units (Sat 08:00, Persistent=true), installed + enabled; never deployed to the VM
+  (see systemd/user/README.md; `loginctl enable-linger ai1` recommended).
+- **Tests**: 157 → **185** passing (test_discover_filters, test_universe_data,
+  test_ai_screener, test_web_discover; append_watchlist cases in test_market_data;
+  /discover added to test_web_app ROUTES). Zero network in tests; same 4 pre-existing
+  failures (test_cost_basis ×3, test_export_schema ×1).
+
+## Phase 11 (2026-09-23): Portfolio news feed
+
+5 stories on holdings prioritized by **volatility × position size** + 10 market-moving stories,
+on the panel /positions page, the local viewer's new /news page, and appended once a day to the
+existing daily review Telegram message. News was deferred in v1 ("yfinance news unreliable");
+yfinance 1.2.1's `Ticker.news` now returns well-formed items (nested `content` dict), so no new
+API key is needed.
+
+- **`news.py`** (new): `_normalize_item` (nested yf schema → flat story; HTML-stripped summary;
+  sha1-of-URL id fallback), `fetch_symbol_news` (per-symbol try/except, returns n_failed),
+  `filter_fresh` (48h), `score_positions` (Ann_Vol × Market_Value; NaN vol → median so size
+  still ranks), `is_relevant` + `load_company_names` (**Yahoo writes "Apple", not "AAPL" — the
+  discovery screener's `info_cache.json` supplies company names, 18/20 coverage of top
+  holdings; without it, ticker-only matching picked stories that weren't about the holding at
+  all**), `select_position_stories` (round-robin over symbols in score order, relevance then
+  recency within a symbol, ≤2/symbol — 5 stories about one company would be a worse feed),
+  `dedup_by_title` (the same wire story appears under several tickers with slightly different
+  titles; runs on the pool *before* curation), `curate_market_stories` (forced tool_choice
+  `select_market_stories`, ≤40 candidates, index validation) with `fallback_market_stories`
+  (recency + title dedup) on any API failure, `build_news_feed` orchestrator, and the pure
+  `format_news_digest`.
+- **Seen-state is a first-seen registry, not a filter**: `data/news_seen.json`
+  `{story_id: first_seen_date}` (14-day prune, rewrite-only-on-change). Pages always show the
+  current best stories — a 3x/day pipeline must not churn them — while the once-daily digest
+  includes only stories first seen today. `_today_str()` pins "today" to America/Los_Angeles on
+  both sides; freshness compares in UTC.
+- **`run_pipeline.py`**: `NEWS_FEED_FILE`/`NEWS_SEEN_FILE`; `build_news_feed` called ungated by
+  market hours (stories break off-hours), fenced in try/except; `'news'` added to `run()`'s
+  return **and** `load_last_run()`'s. News never enters `messages` — no new notifications.
+- **`run_daily_review.py`**: appends the digest to the existing 19:15 message (headlines only,
+  72-char truncation, `Full feed:` link — the "why it matters" lines stay on the pages where
+  there is room). Deterministic; the `daily_summary` prompt is untouched.
+- **Surfaces**: `templates/news.html` + `/news` route + nav (local viewer);
+  News card after Portfolio Summary on panel `/positions` (fold + `.scroll-y` reused,
+  `target="_blank" rel="noopener"`, fallback-ranking note when `curated: false`).
+- **Total-failure safety**: if every yfinance fetch fails, the previous `news_feed.json` is kept
+  rather than overwritten with an empty feed.
+- **Tests**: 185 → **216** passing (`test_news.py` ×27 + 2 news page tests, `/news` added to
+  test_web_app ROUTES). Zero network — yfinance and anthropic monkeypatched. Same 4 pre-existing
+  failures (test_cost_basis ×3, test_export_schema ×1). Panel has no test infra (manual check).
+
+## Phase 12 (2026-09-24): Weekly review was silently producing an empty report
+
+Reported as "the weekly review doesn't work". The systemd job exited 0 every Sunday, but the
+Telegram digest read "(no content)" for all four sections and the panel /fidata page rendered
+blank. Three distinct defects:
+
+1. **Section parser too strict** (the user-visible failure). `weekly_deep_review` matched a line
+   only if `line.strip().rstrip(':')` equaled a section name exactly, but the model writes
+   markdown headers — `## Rebalancing:` — so nothing ever matched and every section stayed ''.
+   The model's report was fine; the parser threw it away. Replaced with `ai_review.split_sections`,
+   which normalizes `#`/`*`/`_`/numbering/trailing punctuation and matches case-insensitively,
+   drops preamble before the first header and horizontal rules. Verified live: sections now come
+   back 1299 / 1302 / 1862 / 1985 chars.
+2. **`load_last_run()` crashed on pandas 3** — `pd.to_numeric(..., errors='ignore')`
+   (run_pipeline.py:298) was removed in pandas 3.0. The VM still runs pandas 2.3.3 so it only
+   warned there, but every review job died locally. Replaced with the documented try/except
+   equivalent.
+3. **Dead link in the digest** — `FIDATA_PANEL_URL` defaulted to `http://localhost:9000/fidata`,
+   which is useless in a message read on a phone. New `app_data_io.panel_url(path)` helper
+   (FIDATA_PANEL_URL → VM_TAILSCALE_IP → localhost, tolerating the legacy `/fidata` suffix), used
+   by both review runners; `FIDATA_PANEL_URL=http://100.79.128.124:9000` added to the master .env's
+   fiData section (run `env_sync.py push_env fidata` to reach the VM).
+
+Plus a **silent-failure guard**: if every section parses empty the job now logs to stderr and puts
+a warning line in the digest, so this can't rot unnoticed again.
+
+- **Tests**: 216 → **233** (`tests/test_ai_review.py`: 10 header-variant cases incl. `## X:`,
+  `**X**`, `1. X:`, preamble/rule stripping, plus `panel_url` precedence). No network.
+- **Still failing (4, unrelated, diagnosed)**: 3 in `test_cost_basis.py` are a *different* pandas-3
+  break — `compute_cost_basis` raises `TypeError: Cannot cast DatetimeArray to dtype float64` when
+  writing First_Buy_Date. Latent on the VM (pandas 2.3.3) but it will take down run_pipeline.py the
+  moment pandas is upgraded — worth fixing deliberately since it touches cost-basis math. The 4th,
+  `test_export_schema.py`, is stale local data: `app_data/combined.json` predates the Split_Factor
+  column and refreshes on the next local pipeline run.

@@ -7,6 +7,7 @@ fiData is a flat module dir, so external consumers do
 same trick run_pipeline.py uses on itself.
 """
 import os
+import re
 from datetime import date, datetime, time as dtime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -85,6 +86,34 @@ def load_watchlist(path: str = WATCHLIST_FILE) -> list[str]:
             if sym:
                 symbols.append(sym)
     return symbols
+
+
+_WATCHLIST_SYM_RE = re.compile(r'^[A-Z][A-Z0-9.\-]{0,9}$')
+
+
+def append_watchlist(symbol: str, path: str = WATCHLIST_FILE) -> str:
+    """Add one ticker to watchlist.txt (the /discover page's promotion sink —
+    tickers there join the pipeline's history refresh + breakout alerts).
+
+    Append-only on purpose: the file's comment header is user-authored and
+    must survive byte-for-byte, so we never rewrite it. Returns
+    'added' | 'exists' | 'invalid'. Dedup normalizes BRK/B vs BRK-B the same
+    way everything else does (enrich.yf_symbol)."""
+    sym = str(symbol or '').strip().upper().replace('/', '-')
+    if not _WATCHLIST_SYM_RE.match(sym):
+        return 'invalid'
+    existing = {s.replace('/', '-') for s in load_watchlist(path)}
+    if sym in existing:
+        return 'exists'
+    prefix = ''
+    if os.path.exists(path):
+        with open(path, 'rb') as f:
+            content = f.read()
+        if content and not content.endswith(b'\n'):
+            prefix = '\n'
+    with open(path, 'a') as f:
+        f.write(f'{prefix}{sym}\n')
+    return 'added'
 
 
 def get_closes(symbols: list[str], hist_df: pd.DataFrame | None = None,

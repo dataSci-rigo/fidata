@@ -8,6 +8,7 @@ digest plus the full structured text written to disk for panel/fidata_routes.py
 to render.
 """
 import os
+import re
 
 import anthropic
 import pandas as pd
@@ -134,15 +135,36 @@ def weekly_deep_review(combined: pd.DataFrame, sector_data: dict,
     )
     text = _ask(system, user_message, max_tokens=2000)
 
-    sections = {'Rebalancing': '', 'Sector Drift': '', 'Tax-Loss Harvesting': '', 'Watch List': ''}
+    return split_sections(text, ['Rebalancing', 'Sector Drift',
+                                 'Tax-Loss Harvesting', 'Watch List'])
+
+
+# A header only has to *contain* the section name once the markdown is
+# stripped: the model reliably writes "## Rebalancing:" (and sometimes
+# "**Rebalancing**" or "1. Rebalancing"), while the original exact-match
+# parser only accepted a bare "Rebalancing:" — so every section came back
+# empty and the review rendered "(no content)" everywhere despite the model
+# having produced a perfectly good report.
+_HEADER_NOISE = re.compile(r'^[\s#*_\d.)\-]+|[\s:*_]+$')
+_RULE_LINE = re.compile(r'^\s*([-*_=])\1{2,}\s*$')       # ---, ***, ___
+
+
+def _header_key(line: str) -> str:
+    return _HEADER_NOISE.sub('', line.strip()).strip().lower()
+
+
+def split_sections(text: str, names: list[str]) -> dict[str, str]:
+    """Split a model response into {section name: body}. Tolerates markdown
+    headers/bold/numbering around the section names; text before the first
+    recognized header is dropped, as are horizontal rules."""
+    wanted = {name.lower(): name for name in names}
+    sections = {name: '' for name in names}
     current = None
     for line in text.splitlines():
-        stripped = line.strip().rstrip(':')
-        if stripped in sections:
-            current = stripped
+        key = _header_key(line)
+        if key in wanted:
+            current = wanted[key]
             continue
-        if current:
+        if current and not _RULE_LINE.match(line):
             sections[current] += line + '\n'
-    for k in sections:
-        sections[k] = sections[k].strip()
-    return sections
+    return {k: v.strip() for k, v in sections.items()}

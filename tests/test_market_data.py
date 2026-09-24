@@ -101,3 +101,35 @@ def test_turtle_frames_feed_backtest_indicators(ohlc_daily):
     assert bars_per_day == 4
     tail = df.iloc[warmup:]
     assert not tail[['N', 'upper_bound', 'lower_bound', 'Close_1_shift_1h']].isna().any().any()
+
+
+def test_append_watchlist_add_and_dedupe(tmp_path):
+    p = tmp_path / 'watchlist.txt'
+    header = '# my watchlist header\n# second comment line\n'
+    p.write_text(header + 'AAPL\n')
+    assert market_data.append_watchlist('nvda', str(p)) == 'added'
+    assert market_data.append_watchlist('NVDA', str(p)) == 'exists'
+    assert market_data.append_watchlist('AAPL', str(p)) == 'exists'
+    # BRK/B normalizes to BRK-B, and re-adding either spelling dedupes
+    assert market_data.append_watchlist('BRK/B', str(p)) == 'added'
+    assert market_data.append_watchlist('BRK-B', str(p)) == 'exists'
+    text = p.read_text()
+    assert text.startswith(header)          # comments byte-identical
+    assert market_data.load_watchlist(str(p)) == ['AAPL', 'NVDA', 'BRK-B']
+
+
+def test_append_watchlist_missing_trailing_newline(tmp_path):
+    p = tmp_path / 'watchlist.txt'
+    p.write_text('AAPL')                    # no trailing newline
+    assert market_data.append_watchlist('TLT', str(p)) == 'added'
+    assert market_data.load_watchlist(str(p)) == ['AAPL', 'TLT']
+
+
+def test_append_watchlist_invalid_and_missing_file(tmp_path):
+    p = tmp_path / 'new_watchlist.txt'
+    assert market_data.append_watchlist('', str(p)) == 'invalid'
+    assert market_data.append_watchlist('bad sym', str(p)) == 'invalid'
+    assert market_data.append_watchlist('X' * 20, str(p)) == 'invalid'
+    assert not p.exists()
+    assert market_data.append_watchlist('SPY', str(p)) == 'added'
+    assert market_data.load_watchlist(str(p)) == ['SPY']

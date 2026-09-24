@@ -83,6 +83,13 @@ COL_FMTS = {
     'Sold':               '$big',
     'Net_Deployed':       '$big',
     'Realized_GL':        '$big',
+    # discovery universe (/discover)
+    'Dividend_Yield':     'pct',   # fraction, 0.03 = 3%
+    'Expense_Ratio':      'pct',
+    'Max_Drawdown':       'pct',
+    'Corr_Portfolio':     'f2',
+    'High_52w_Ratio':     'f2',
+    'Avg_Dollar_Vol':     '$auto',
 }
 
 # Files the pipeline is expected to produce, for the freshness/empty-state UI.
@@ -96,6 +103,23 @@ EXPECTED_ARTIFACTS = [
     ('efficient_frontier.png', DATA_DIR), ('correlation_heatmap.png', DATA_DIR),
     ('historical.csv', DATA_DIR),
 ]
+
+
+def panel_url(path: str = '') -> str:
+    """Base URL of the panel dashboards, for links inside Telegram messages.
+
+    FIDATA_PANEL_URL wins when set. Otherwise prefer VM_TAILSCALE_IP over
+    localhost: these links are read on a phone, where 'http://localhost:9000'
+    is useless — it points the phone at itself.
+    """
+    base = os.getenv('FIDATA_PANEL_URL', '').rstrip('/')
+    if base.endswith('/fidata'):
+        base = base[:-len('/fidata')]   # legacy values included the page path
+    if not base:
+        host = os.getenv('VM_TAILSCALE_IP', '').strip().strip("'\"") or 'localhost'
+        port = os.getenv('CONTROL_PANEL_PORT', '9000').strip().strip("'\"")
+        base = f'http://{host}:{port}'
+    return f"{base}/{path.lstrip('/')}" if path else base
 
 
 def load(filename: str, app_data_dir: str = APP_DATA):
