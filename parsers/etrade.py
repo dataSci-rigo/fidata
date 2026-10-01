@@ -47,9 +47,15 @@ def parse_account_summary(filepath: str, data_dir: str) -> tuple[str | None, pd.
         df['Quantity'] = pd.to_numeric(df['Qty #'], errors='coerce')
     df['Current_Price'] = pd.to_numeric(df['Last Price $'], errors='coerce')
     df['Market_Value'] = pd.to_numeric(df['Value $'], errors='coerce')
+    # E*Trade reports cost per share ("Price Paid $"), not the position total.
+    if 'Price Paid $' in df.columns:
+        df['Cost_Basis'] = pd.to_numeric(df['Price Paid $'],
+                                         errors='coerce') * df['Quantity']
+    else:
+        df['Cost_Basis'] = float('nan')
 
     result = (
-        df[['Symbol', 'Quantity', 'Current_Price', 'Market_Value']]
+        df[['Symbol', 'Quantity', 'Current_Price', 'Market_Value', 'Cost_Basis']]
         .dropna(subset=['Market_Value'])
         .set_index('Symbol')
         .rename(index=CASH_ALIASES)

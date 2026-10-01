@@ -24,7 +24,7 @@ def test_parse_all_accounts(fixtures_dir):
     # 'Cash and Money Market' is a NON_EQUITY_SYMBOLS section total, dropped
     # entirely (not aliased to 'cash' the way 'Cash & Cash Investments' is).
     assert list(a.index) == ['AAA', 'BBB']
-    assert set(a.columns) == {'Quantity', 'Market_Value', 'Current_Price'}
+    assert set(a.columns) == {'Quantity', 'Market_Value', 'Current_Price', 'Cost_Basis'}
     assert a.loc['AAA', 'Quantity'] == 10
     assert a.loc['AAA', 'Market_Value'] == 1100.00
     assert a.loc['AAA', 'Current_Price'] == 110.0

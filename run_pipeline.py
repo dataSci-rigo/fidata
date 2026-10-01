@@ -122,7 +122,13 @@ def run() -> dict:
         split_meta = {'covered_from': str(CUTOFF.date()),
                       'symbols': sorted(set(split_meta.get('symbols') or []) | set(all_symbols))}
 
-    hist_df, split_table = refresh_historical(all_symbols, HIST_FILE,
+    # Sector/market benchmark ETFs need the same 10y history so
+    # performance.py can measure each holding against its own sector. They are
+    # NOT added to all_symbols: that list drives the breakout alerts, and
+    # benchmarks exist to be measured against, not traded.
+    from performance import BENCHMARKS
+    hist_symbols = sorted(set(all_symbols) | set(BENCHMARKS))
+    hist_df, split_table = refresh_historical(hist_symbols, HIST_FILE,
                                                split_table=split_table)
     splits.save_table(split_table, SPLITS_FILE)
     splits.save_meta(split_meta, SPLITS_FILE)

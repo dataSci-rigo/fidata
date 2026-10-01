@@ -1,0 +1,436 @@
+<title>Before You Sell</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Spectral:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+  :root{
+    --ground:#F6F7F5; --surface:#FFFFFF; --sunken:#EFF1EE;
+    --ink:#14171C; --muted:#5B6472; --rule:#E1E5E0;
+    --accent:#0E5A57; --accent-soft:#D9E8E6;
+    --pos:#1C6B4B; --neg:#A33A2E; --warn:#8A6A17; --warn-soft:#F4EBD2;
+    --band0:#1C6B4B; --band15:#8A6A17; --band19:#A85B24; --band24:#A33A2E;
+    --serif:"Spectral",Georgia,"Times New Roman",serif;
+    --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+    --measure:34rem;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ground:#11141A; --surface:#171C23; --sunken:#1D232B;
+      --ink:#E7EAE7; --muted:#8C95A2; --rule:#242B34;
+      --accent:#52B5AC; --accent-soft:#16312F;
+      --pos:#4FB283; --neg:#DE7065; --warn:#C6A14A; --warn-soft:#2C2616;
+      --band0:#4FB283; --band15:#C6A14A; --band19:#D8884E; --band24:#DE7065;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#11141A; --surface:#171C23; --sunken:#1D232B;
+    --ink:#E7EAE7; --muted:#8C95A2; --rule:#242B34;
+    --accent:#52B5AC; --accent-soft:#16312F;
+    --pos:#4FB283; --neg:#DE7065; --warn:#C6A14A; --warn-soft:#2C2616;
+    --band0:#4FB283; --band15:#C6A14A; --band19:#D8884E; --band24:#DE7065;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--ground); color:var(--ink);
+       font-family:var(--sans); font-size:16px; line-height:1.6;
+       -webkit-font-smoothing:antialiased}
+  .wrap{max-width:60rem; margin:0 auto; padding:2.5rem 1.5rem 5rem}
+  .measure{max-width:var(--measure)}
+
+  .masthead{display:flex; flex-wrap:wrap; align-items:baseline; gap:.5rem 1.25rem;
+    padding-bottom:1rem; border-bottom:2px solid var(--ink); margin-bottom:1.5rem}
+  .masthead h1{font-family:var(--serif); font-weight:600; font-size:2.6rem;
+    line-height:1.05; margin:0; letter-spacing:-.015em; text-wrap:balance}
+  .masthead .dateline{font-family:var(--mono); font-size:.78rem; color:var(--muted);
+    letter-spacing:.06em; text-transform:uppercase; margin-left:auto}
+  .standfirst{font-family:var(--serif); font-size:1.15rem; font-style:italic;
+    color:var(--muted); max-width:44rem; margin:0 0 2rem}
+  .backlink{font-family:var(--mono); font-size:.76rem; letter-spacing:.06em;
+    text-transform:uppercase; margin:0 0 2.25rem}
+  .backlink a{color:var(--accent); text-decoration:none;
+    border-bottom:1px solid var(--accent-soft); padding-bottom:1px}
+  .backlink a:hover{border-bottom-color:var(--accent)}
+
+  /* the rate ladder — the thing you actually look up */
+  .ladder{border:1px solid var(--rule); background:var(--surface); margin:0 0 .75rem}
+  .rung{display:grid; grid-template-columns:5.5rem 1fr auto; gap:1rem;
+    align-items:baseline; padding:.8rem 1.1rem; border-bottom:1px solid var(--rule)}
+  .rung:last-child{border-bottom:none}
+  .rung .rate{font-family:var(--mono); font-size:1.5rem; font-weight:600;
+    font-variant-numeric:tabular-nums; letter-spacing:-.02em}
+  .rung .what{font-size:.9rem}
+  .rung .what strong{font-weight:600}
+  .rung .what .why{display:block; color:var(--muted); font-size:.82rem; margin-top:.1rem}
+  .rung .edge{font-family:var(--mono); font-size:.86rem; font-variant-numeric:tabular-nums;
+    color:var(--muted); text-align:right; white-space:nowrap}
+  .r0 .rate{color:var(--band0)} .r15 .rate{color:var(--band15)}
+  .r19 .rate{color:var(--band19)} .r24 .rate{color:var(--band24)}
+  .ladder-note{font-size:.78rem; color:var(--muted); margin:0 0 3rem; max-width:44rem}
+
+  section{margin-bottom:3.25rem}
+  .eyebrow{font-family:var(--mono); font-size:.72rem; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--accent); margin:0 0 .35rem}
+  h2{font-family:var(--serif); font-weight:600; font-size:1.75rem; line-height:1.15;
+    margin:0 0 1rem; letter-spacing:-.01em; text-wrap:balance}
+  h3{font-family:var(--sans); font-weight:600; font-size:.95rem;
+    margin:2rem 0 .6rem; letter-spacing:.01em}
+  p{margin:0 0 1rem}
+  .measure p, .measure ul{max-width:var(--measure)}
+  ul{margin:0 0 1rem; padding-left:1.1rem}
+  li{margin-bottom:.5rem}
+  li::marker{color:var(--accent)}
+  .tk{font-family:var(--mono); font-size:.92em; font-weight:500}
+  .num{font-family:var(--mono); font-variant-numeric:tabular-nums}
+  .pos{color:var(--pos)} .neg{color:var(--neg)}
+
+  /* every rule carries its authority */
+  .cite{font-family:var(--mono); font-size:.7rem; letter-spacing:.04em;
+    color:var(--accent); background:var(--accent-soft); padding:.1rem .4rem;
+    border-radius:2px; white-space:nowrap}
+  .rule{border-top:1px solid var(--rule); padding-top:1rem; margin-bottom:1.75rem;
+    max-width:44rem}
+  .rule .head{display:flex; flex-wrap:wrap; align-items:baseline; gap:.6rem;
+    margin-bottom:.45rem}
+  .rule .head h4{margin:0; font-family:var(--sans); font-weight:600; font-size:1rem}
+  .rule p{margin:0 0 .6rem; font-size:.93rem}
+  .rule p:last-child{margin-bottom:0}
+  blockquote{margin:.6rem 0 .8rem; padding:.6rem 0 .6rem 1rem;
+    border-left:2px solid var(--rule); font-family:var(--serif);
+    font-size:.95rem; color:var(--muted)}
+  blockquote em{font-style:normal; color:var(--ink); font-weight:600}
+
+  .callout{border-left:3px solid var(--warn); background:var(--warn-soft);
+    padding:.9rem 1.1rem; margin:1.25rem 0; max-width:44rem}
+  .callout p{margin:0 0 .6rem; font-size:.93rem}
+  .callout p:last-child{margin-bottom:0}
+  .callout .label{font-family:var(--mono); font-size:.7rem; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--warn); display:block; margin-bottom:.3rem}
+  .callout.info{border-left-color:var(--accent); background:var(--accent-soft)}
+  .callout.info .label{color:var(--accent)}
+
+  .table-wrap{overflow-x:auto; border:1px solid var(--rule); background:var(--surface);
+    margin:1.25rem 0}
+  table{border-collapse:collapse; width:100%; font-size:.86rem}
+  caption{text-align:left; font-family:var(--mono); font-size:.72rem;
+    letter-spacing:.08em; text-transform:uppercase; color:var(--muted);
+    padding:.7rem .9rem .5rem}
+  th,td{padding:.45rem .9rem; text-align:right; white-space:nowrap;
+    border-bottom:1px solid var(--rule)}
+  th:first-child,td:first-child{text-align:left}
+  thead th{font-family:var(--mono); font-size:.72rem; letter-spacing:.06em;
+    text-transform:uppercase; color:var(--muted); font-weight:500;
+    border-bottom:1px solid var(--ink)}
+  tbody td{font-family:var(--mono); font-variant-numeric:tabular-nums}
+  tbody td:first-child{font-family:var(--sans)}
+  tbody tr:last-child td{border-bottom:none}
+  tr.hi td{background:var(--accent-soft)}
+
+  .verdict{display:grid; grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));
+    gap:1px; background:var(--rule); border:1px solid var(--rule); margin:1.25rem 0}
+  .vcard{background:var(--surface); padding:.9rem 1rem}
+  .vcard .k{font-family:var(--mono); font-size:.68rem; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--muted); margin:0 0 .3rem}
+  .vcard .v{font-family:var(--mono); font-size:1.28rem; font-weight:500;
+    font-variant-numeric:tabular-nums; letter-spacing:-.02em; margin:0}
+  .vcard .s{font-size:.78rem; color:var(--muted); margin:.25rem 0 0}
+
+  footer{border-top:1px solid var(--rule); padding-top:1.25rem; margin-top:1rem;
+    font-size:.8rem; color:var(--muted); max-width:46rem}
+  footer p{margin:0 0 .6rem}
+  footer .srcs{font-family:var(--mono); font-size:.72rem; line-height:1.9}
+  a{color:var(--accent)}
+  @media (max-width:32rem){
+    .masthead h1{font-size:2rem}
+    .rung{grid-template-columns:4.2rem 1fr; gap:.7rem}
+    .rung .edge{grid-column:2; text-align:left}
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <h1>Before You Sell</h1>
+    <div class="dateline">Verified 29 Sep 2026</div>
+  </header>
+
+  <p class="standfirst">The federal and California rules that decide what a sale costs — checked
+  against the statute and the Revenue Procedure, not from memory.</p>
+
+  <p class="backlink">← <a href="https://claude.ai/code/artifact/452762e6-275e-48fd-8bc2-1390ddb28bb4">fiData Weekly Review</a></p>
+
+  <!-- ─── THE LADDER ─────────────────────────────────────────────────── -->
+  <section>
+    <p class="eyebrow">Single filer · tax year 2026</p>
+    <h2>What a dollar of long-term gain actually costs</h2>
+    <p class="measure">Four rates, not three. The published table stops at 15% and 20%; the
+    3.8% surtax in between runs on a different income measure and arrives far earlier than
+    the 20% bracket does.</p>
+
+    <div class="ladder">
+      <div class="rung r0">
+        <div class="rate">0%</div>
+        <div class="what"><strong>Taxable income up to $49,450</strong>
+          <span class="why">With the standard deduction underneath, that is <strong>$65,550 of gain</strong> when there is no other income</span></div>
+        <div class="edge">§1(h) · Rev.&nbsp;Proc.&nbsp;2025-32 §4.03</div>
+      </div>
+      <div class="rung r15">
+        <div class="rate">15%</div>
+        <div class="what"><strong>From $49,450 of taxable income</strong>
+          <span class="why">Marginal, not a cliff — one dollar over costs fifteen cents</span></div>
+        <div class="edge">§1(h)(1)(C)(i)</div>
+      </div>
+      <div class="rung r19">
+        <div class="rate">18.8%</div>
+        <div class="what"><strong>From $200,000 of MAGI</strong>
+          <span class="why">15% + the 3.8% net investment income tax. Never inflation-indexed — frozen since 2013</span></div>
+        <div class="edge">§1411</div>
+      </div>
+      <div class="rung r24">
+        <div class="rate">23.8%</div>
+        <div class="what"><strong>From $545,500 of taxable income</strong>
+          <span class="why">20% + NIIT</span></div>
+        <div class="edge">Rev.&nbsp;Proc.&nbsp;2025-32 §4.03</div>
+      </div>
+    </div>
+    <p class="ladder-note"><strong>Two different income measures.</strong> The capital-gains
+    brackets run on <em>taxable</em> income (after deductions); the NIIT threshold runs on
+    <em>MAGI</em> (before them). With no other income, MAGI equals the gain — so 18.8% begins at
+    $200,000 of gain, which is only $183,900 of taxable income, nowhere near $545,500.</p>
+
+    <h3>Add California, which has no preferential rate at all</h3>
+    <p class="measure">California taxes long-term gain as ordinary income — 1% to 12.3%. The
+    combined marginal rate on a gain, single filer with no other income:</p>
+
+    <div class="table-wrap">
+      <table>
+        <caption>Combined federal + California marginal rate on the next dollar of gain</caption>
+        <thead><tr><th>Gross gain</th><th>Federal</th><th>California</th><th>Combined</th><th>What changed</th></tr></thead>
+        <tbody>
+          <tr class="hi"><td>to $65,550</td><td>0%</td><td>0–8%</td><td><strong>0–8%</strong></td><td>the 0% band</td></tr>
+          <tr><td>$65,550–78,430</td><td>15%</td><td>8%</td><td>23.0%</td><td>federal 0% exhausted</td></tr>
+          <tr><td>$78,430–200,000</td><td>15%</td><td>9.3%</td><td>24.3%</td><td>CA top bracket</td></tr>
+          <tr><td>$200,000–250,000</td><td>18.8%</td><td>9.3%</td><td>28.1%</td><td>NIIT begins</td></tr>
+          <tr><td>$250,000–561,600</td><td>18.8%</td><td>9.3%</td><td>29.0%</td><td>CA credit phase-out</td></tr>
+          <tr><td>above $561,600</td><td>23.8%</td><td>9.3%</td><td>33.1%</td><td>federal 20% bracket</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <span class="label">Live IRS error</span>
+      <p>IRS <em>Topic no. 409</em>, the taxpayer-facing capital-gains page, was last reviewed
+      24 September 2026 and still displays <strong>tax year 2025</strong> figures ($48,350 /
+      $533,400). Do not check your numbers against it.</p>
+    </div>
+  </section>
+
+  <!-- ─── SCHEDULES ──────────────────────────────────────────────────── -->
+  <section>
+    <p class="eyebrow">Reference tables</p>
+    <h2>Rate schedules</h2>
+
+    <div class="table-wrap">
+      <table>
+        <caption>Federal long-term capital gain — tax year 2026 · Rev. Proc. 2025-32 §4.03, measured on taxable income</caption>
+        <thead><tr><th>Filing status</th><th>0% ends / 15% starts</th><th>15% ends / 20% starts</th><th>Standard deduction</th><th>0% capacity *</th></tr></thead>
+        <tbody>
+          <tr class="hi"><td>Single</td><td>49,450</td><td>545,500</td><td>16,100</td><td>65,550</td></tr>
+          <tr><td>Married filing jointly</td><td>98,900</td><td>613,700</td><td>32,200</td><td>131,100</td></tr>
+          <tr><td>Head of household</td><td>66,200</td><td>579,600</td><td>24,150</td><td>90,350</td></tr>
+          <tr><td>Married filing separately</td><td>49,450</td><td>306,850</td><td>16,100</td><td>65,550</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="ladder-note">* Gain realizable at 0% federal with <em>no other income</em>. It is a
+    floor, not a ceiling: <span class="cite">§63(f)</span> adds $1,650 for aged or blind ($2,050
+    if unmarried), so a single filer at 65+ has $67,600. Tax year 2025 was $64,100 single
+    ($48,350 + $15,750) — a sale in December versus January moves the line by $1,450.</p>
+
+    <div class="table-wrap">
+      <table>
+        <caption>California FTB Schedule X — tax year 2025 · single filer, on taxable income</caption>
+        <thead><tr><th>Rate</th><th>Bracket top</th><th>Rate</th><th>Bracket top</th></tr></thead>
+        <tbody>
+          <tr><td>1%</td><td>11,079</td><td>9.3%</td><td>371,479</td></tr>
+          <tr><td>2%</td><td>26,264</td><td>10.3%</td><td>445,771</td></tr>
+          <tr><td>4%</td><td>41,452</td><td>11.3%</td><td>742,953</td></tr>
+          <tr><td>6%</td><td>57,542</td><td>12.3%</td><td>above</td></tr>
+          <tr><td>8%</td><td>72,724</td><td>+1%</td><td>over 1,000,000</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="ladder-note">Standard deduction <span class="num">$5,706</span>; exemption credit
+    <span class="num">$153</span> (a credit, not a deduction). Every joint bracket is
+    <em>exactly</em> double — <span class="cite">R&amp;TC 17045</span> defines joint tax as twice
+    the tax on half the income. Head of household uses Schedule Z, which is <em>not</em> a
+    multiple of this. The 1% surtax over $1,000,000 — renamed the Behavioral Health Services Tax
+    for 2025 — is flat for every filing status and never indexed
+    <span class="cite">R&amp;TC 17043</span>. Tax year 2026 California brackets do not exist yet;
+    the FTB publishes them in late December.</p>
+  </section>
+
+  <!-- ─── WASH SALES ─────────────────────────────────────────────────── -->
+  <section>
+    <p class="eyebrow">IRC §1091</p>
+    <h2>Wash sales reach losses, and only losses</h2>
+
+    <blockquote>In the case of any <em>loss</em> claimed to have been sustained from any sale
+    or other disposition of shares of stock or securities where it appears that, within a
+    period beginning 30 days before the date of such sale and ending 30 days after such date,
+    the taxpayer has acquired substantially identical stock or securities, then <em>no deduction
+    shall be allowed</em> under section 165.</blockquote>
+
+    <p class="measure">That is the whole of it. All six subsections were checked: there is no
+    gain-side provision anywhere in §1091, and no counterpart elsewhere. Selling an appreciated
+    position and buying it straight back is outside the rule — the gain is recognized under
+    <span class="cite">§1001(c)</span>, the new shares take cost basis under
+    <span class="cite">§1012(a)</span>, and the step-up is immediate.</p>
+
+    <div class="rule">
+      <div class="head"><h4>But the holding-period clock resets</h4><span class="cite">§1223(3)</span></div>
+      <p>Tacking exists <em>only</em> for wash sales — §1223(3) applies by its terms where the
+      purchase “resulted in the nondeductibility (under section 1091 relating to wash sales) of
+      the loss.” A repurchase after a <em>gain</em> gets nothing. The new shares start a fresh
+      one-year clock, and selling inside it makes the whole gain <strong>short-term, at ordinary
+      rates</strong>. This is the real cost of a rebuy-to-step-up, and it is easy to miss.</p>
+    </div>
+
+    <div class="rule">
+      <div class="head"><h4>The window is 61 days, not 30</h4><span class="cite">Treas. Reg. §1.1091-1(a)</span></div>
+      <p>Thirty days before <em>through</em> thirty days after, counting the sale date — the
+      regulation names it “the 61-day period.” A disallowed loss is not destroyed: §1091(d) adds
+      it to the replacement shares’ basis, deferring it.</p>
+    </div>
+
+    <div class="rule">
+      <div class="head"><h4>A repurchase inside an IRA destroys the loss permanently</h4><span class="cite">Rev. Rul. 2008-5</span></div>
+      <p>The loss is disallowed <em>and</em> the §1091(d) basis add-back is denied. Nothing
+      is deferred; it is simply gone. The usual cause is not a deliberate trade — it is
+      <strong>automatic dividend reinvestment</strong> inside an IRA, or a biweekly 401(k)
+      payroll contribution into a substantially identical fund. Those hold a 61-day window
+      permanently open and appear on no tax form.</p>
+    </div>
+
+    <div class="rule">
+      <div class="head"><h4>Your broker will not catch it</h4><span class="cite">Form 1099-B box 1g</span></div>
+      <p>Wash-sale reporting is mandatory only for the <em>same account, same CUSIP</em>, covered
+      securities. A repurchase at another broker, in an IRA, or by a spouse or controlled
+      corporation still triggers the rule — and must be self-identified. Entering a contract or
+      option is itself the triggering act; exercise is not required
+      <span class="cite">Reg. §1.1091-1(f)</span>.</p>
+    </div>
+
+    <div class="rule">
+      <div class="head"><h4>“Substantially identical” has never been defined</h4></div>
+      <p>§1091 leaves the term undefined and its regulations were never written for index funds.
+      There is <strong>no IRS ruling, regulation, notice or publication</strong> addressing
+      whether two S&amp;P 500 ETFs from different issuers, two share classes of one fund, or
+      dual-class common are substantially identical. Anyone quoting a bright line is quoting
+      practitioner convention. The only blanket fund exemption the IRS has ever granted is
+      Rev. Proc. 2014-45, for floating-NAV money market funds — and its narrowness is itself
+      the evidence.</p>
+    </div>
+
+    <p class="measure"><strong>California conforms with no modification.</strong>
+    <span class="cite">R&amp;TC 18031</span> incorporates IRC Subchapter O wholesale, which is
+    where §1091 lives; no section of R&amp;TC 18031–18045 carves it out. And California has no
+    preferential capital-gains rate because <span class="cite">R&amp;TC 17041(a)(1)</span> taxes
+    “the entire taxable income” on one schedule, while the state never incorporates IRC
+    Subchapter A — where the federal 0/15/20% regime sits. It is absent by construction, not
+    by omission.</p>
+  </section>
+
+  <!-- ─── BIGGER THAN THE TAX ────────────────────────────────────────── -->
+  <section>
+    <p class="eyebrow">Check these first</p>
+    <h2>Five things that can cost more than the tax</h2>
+    <p class="measure">Each of these can exceed the entire federal-plus-California bill on a
+    $50,000 harvest. None of them is modeled by the tool.</p>
+
+    <div class="rule">
+      <div class="head"><h4>1 · The ACA cliff may sit below the target</h4><span class="cite">§36B</span></div>
+      <p>Realized gain raises MAGI. 400% of the federal poverty level for a single household is
+      roughly <strong>$62,600</strong> — <em>below</em> a $65,550 harvest. If the enhanced
+      subsidies lapsed after 2025, crossing that line repays the full year’s advance premium tax
+      credits with <strong>no repayment cap</strong>, commonly $5,000–$9,000. The effective
+      marginal rate on the crossing dollar is in the thousands of percent. This is the only
+      input capable of inverting the whole recommendation.</p>
+    </div>
+
+    <div class="rule">
+      <div class="head"><h4>2 · A loss carryforward makes the harvest net-negative</h4><span class="cite">§1212(b)</span></div>
+      <p>Carryforward use is <strong>mandatory</strong> — you cannot decline it. It nets against
+      the harvested gain first, so it is consumed at a 0% rate and buys nothing. Check the
+      balance before sizing anything.</p>
+    </div>
+
+    <div class="rule">
+      <div class="head"><h4>3 · The benefit may not exist at all</h4><span class="cite">§1014 · §170</span></div>
+      <p>A harvest only pays if a future sale at 15% or more genuinely happens <em>during life</em>.
+      Held to death, heirs take basis at market value for free. Donated, appreciated stock escapes
+      the gain entirely and still generates a deduction. Paying California 8–9.3% today to buy
+      basis that §1014 would have delivered at zero cost is a pure loss.</p>
+    </div>
+
+    <div class="rule">
+      <div class="head"><h4>4 · Roth conversion competes for the same band</h4><span class="cite">§1(h)(1)(B)(ii)</span></div>
+      <p>Conversion income is <em>ordinary</em>, and ordinary income fills the 0% band first. Each
+      dollar converted pushes a dollar of long-term gain out of 0% and into 15%. The true marginal
+      cost of a conversion in this situation is the 10–12% ordinary rate <em>plus</em> 15% on the
+      displaced gain <em>plus</em> California on both — roughly <strong>33–37%</strong>, not the
+      10–12% headline. A low-income year funds one of these strategies, not both.</p>
+    </div>
+
+    <div class="rule">
+      <div class="head"><h4>5 · Harvesting losses and gains in the same year cancels them</h4><span class="cite">§1222</span></div>
+      <p>Losses net against gains <em>before</em> the 0% bracket is reached, so realizing losses in
+      a 0% year wastes them. The same applies to Q4 fund distributions: December capital-gain
+      distributions land in the same band, so a September harvest sized to fill exactly $65,550
+      will overshoot. Size to a buffer, or act after distributions are declared.</p>
+    </div>
+  </section>
+
+  <!-- ─── WHAT THE TOOL KNOWS ────────────────────────────────────────── -->
+  <section>
+    <p class="eyebrow">Scope</p>
+    <h2>What fiData models — and what it does not</h2>
+
+    <div class="verdict">
+      <div class="vcard"><p class="k">Modeled</p><p class="v" style="font-size:.95rem;font-family:var(--sans)">Federal LTCG brackets, NIIT, California brackets, holding period, account tax status</p></div>
+      <div class="vcard"><p class="k">Not modeled</p><p class="v" style="font-size:.95rem;font-family:var(--sans)">ACA credits, loss carryforward, wash sales, kiddie tax, EITC, estimated tax, lot selection</p></div>
+      <div class="vcard"><p class="k">Assumed</p><p class="v" style="font-size:.95rem;font-family:var(--sans)">Single filer, $0 other income — set <span class="tk">FIDATA_FILING_STATUS</span> and <span class="tk">FIDATA_OTHER_INCOME</span></p></div>
+    </div>
+
+    <p class="measure">Two structural cautions on the inputs themselves. <strong>Unknown cost
+    basis is not zero basis</strong>, and unknown holding term is not long term — pre-2011
+    noncovered lots, transferred accounts and gifted shares are where broker basis is wrong or
+    missing. And <strong>which lot leaves matters</strong>: specific identification under
+    <span class="cite">Reg. §1.1012-1(c)</span> must be elected by settlement, the broker default
+    is usually FIFO, and for a gain harvest you generally want the lowest-basis lots.</p>
+
+    <div class="callout info">
+      <span class="label">Provenance</span>
+      <p>Every federal figure here was read from the IRS source named beside it — Rev. Proc.
+      2025-32 and 2024-40, the U.S. Code, Form 1040 instructions. The <strong>California figures
+      could not be read directly</strong>: ftb.ca.gov refuses automated requests and no archive
+      was reachable. They are confirmed <em>arithmetically</em> instead — base-tax chaining is
+      exact to the cent across all eight bracket transitions, and applying the stated 3.0% CCPI
+      factor to every 2024 edge reproduces every 2025 edge, the standard deduction and both
+      exemption credits, to the dollar. Treat them as consistent rather than as read.</p>
+    </div>
+  </section>
+
+  <footer>
+    <p><strong>Primary sources.</strong> Verified 29 September 2026 against statute and
+    published guidance; nothing here is from memory.</p>
+    <p class="srcs">
+      26 U.S.C. §1(h), §1091, §1211, §1212, §1222, §1223, §1259, §1411, §63 · Treas. Reg.
+      §1.1091-1, §1.1012-1 · Rev. Proc. 2025-32 §4.03, §4.14(1) · Rev. Proc. 2024-40 §2.03 ·
+      Rev. Rul. 2008-5 · Rev. Proc. 2014-45 · IRS Pub. 550 · Cal. R&amp;TC §17041, §17043,
+      §17045, §18031, §18151
+    </p>
+    <p>Rev. Proc. 2025-32 fixes its figures to the Code as in effect 9 October 2025. A technical
+    revision of 17 October 2025 touched §4.08 and §4.06(1), not the sections used here.</p>
+  </footer>
+
+</div>

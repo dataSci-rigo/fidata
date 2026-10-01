@@ -829,3 +829,128 @@ a warning line in the digest, so this can't rot unnoticed again.
   moment pandas is upgraded — worth fixing deliberately since it touches cost-basis math. The 4th,
   `test_export_schema.py`, is stale local data: `app_data/combined.json` predates the Split_Factor
   column and refreshes on the next local pipeline run.
+
+## Phase 13 (2026-09-24): Weekly review — OpenRouter for the auto-job, Opus-in-session → Artifact
+
+Goal: the deep review written by an Opus-class model without API billing, with an automated
+prompt and current data. Three constraints shaped it: hooks fire only inside a Claude Code
+session (never on the VM), an Artifact can neither fetch the data nor publish itself, and the
+fresh data lives only on the VM. So the VM keeps generating and Claude Code became the
+publishing surface.
+
+- **`llm.py`** (new): provider shim. `FIDATA_LLM_PROVIDER=openrouter` routes the daily/weekly
+  reviews through OpenRouter (key already in .env; same call pattern as
+  todo_list/accountability_bot.py) with `FIDATA_COACH_MODEL=anthropic/claude-opus-5.5`
+  (~$0.08/run, verified). Both clients built lazily — `ai_review` previously constructed
+  `anthropic.Anthropic()` at import time, so importing it died without an ANTHROPIC_API_KEY even
+  when the job was routed elsewhere. **news.curate_market_stories stays on the Anthropic SDK**
+  (forced `tool_choice` is provider-specific).
+  - **Reasoning models share the answer's token budget.** First live run returned
+    `content: null` with `finish_reason=length` after spending 4222 tokens thinking — surfacing
+    as an AttributeError inside the section parser. Fixed with `reasoning: {effort: low}` +
+    `REASONING_HEADROOM`, and an explicit error naming finish_reason and reasoning size.
+- **`weekly_input.py`** (new): the facts bundle (~22 KB) both review paths read — totals, MPT,
+  sectors, 25 largest holdings, 3-month movers, loss candidates, closed positions, annual
+  activity, news, earnings. No AI, no network, every input optional.
+- **`prompts/weekly_review.md`** (new): one prompt shared by both handoff paths, so editing it
+  changes both. Owns the grounding rules (notably: `default_cutoff` basis ⇒ return untrustworthy).
+- **`.claude/skills/weekly-review/SKILL.md`** (new): the automated prompt — curls the bundle from
+  the panel over Tailscale, follows the prompt file, publishes the Artifact to a fixed file path
+  (stable URL), records `data/artifact_published.json`.
+- **`panel/fidata_routes.py`**: `GET /fidata/weekly_input.json` download + a link on the page, so
+  the bundle can be handed to Claude from the phone.
+- **SessionStart hook** (`.claude/settings.json`) + **`weekly_review_nudge.py`**: offline marker
+  check, one line when the page is >7 days unpublished, silent otherwise. No ssh — a hook that
+  phoned the VM would add seconds to every session start.
+- **`run_weekly_review.py`**: argparse at last (`--no-telegram`, `--quiet`), writes the bundle
+  each Sunday, digest links both the Artifact and the panel.
+- **First page published** 2026-09-24: `FIDATA_ARTIFACT_URL` in .env; republishing the same file
+  path updates the same URL.
+- **Tests**: 233 → **250** (`test_llm.py` both providers + reasoning-budget cases,
+  `test_weekly_input.py` bundle + nudge boundaries). Zero network. Same 4 pre-existing failures.
+
+## Phase 14 (2026-09-26): Tax treatment and real cost basis — two wrong answers corrected
+
+The user caught both: "The documents don't provide cost basis? Koru sits behind rollover 401k
+IRAs. Do you not know which items are taxable?" No, and no — and the published weekly review was
+wrong as a result.
+
+**1. Cost basis was in the exports all along.** `load_fallback_cost_basis` matched the literal
+string `'Average Cost Basis'` — Fidelity's header. Schwab's column is `Cost Basis` (position
+total) and E*Trade's is `Price Paid $` (per share); neither was ever read, so ~25% of equity fell
+through to the 2023 `default_cutoff` placeholder while the real basis sat in the file (AAPL
+$4,761.95 on 106 shares, etc.). Each parser now carries a `Cost_Basis` column
+(schwab/fidelity/etrade + the Holdings.xlsx variant, which reports gain rather than cost, so cost
+is backed out of it), `merge_accounts` sums it with `min_count=1`, and
+`analytics.broker_cost_basis` pools it share-weighted across accounts — the old code let the
+last-parsed file win for a symbol held in three accounts. Result: 123 symbols have a real basis;
+ROIC moved 13.11% → 18.03% because the placeholder was understating gains.
+
+**2. The pipeline had no idea which accounts are taxable.** `merge_accounts` collapses all ten
+accounts before anything downstream sees them, so the review recommended harvesting losses inside
+IRAs. New `tax.py`: status from `ACC_TAXABLE` / `ACC_TAX_ADVANTAGED` (never a silent default — an
+unlisted account is `unknown` and excluded from harvest figures), `taxable_positions` (taxable
+accounts only, broker basis, optionally restated at live prices since the exports are months old),
+`harvest_candidates` (min-loss threshold). Account types were read from the exports' own headers
+and confirmed with the user: taxable = Schwab …137, …472 (Designated Bene Individual) and E*Trade
+…4919; the other seven are IRA/Roth/rollover, including E*Trade `XRA580898` (the Empower
+rollover, previously unlabeled — now `ACC_898`).
+
+Cost basis is all-or-nothing per symbol: a plain `sum` turns an all-NaN basis into 0.0 (an unknown
+cost then reads as a 100% gain) and a partial sum understates cost, so either way a real loss
+hides behind a phantom gain. Both guarded, both tested.
+
+**What it changed in the review**: harvest candidates went from a list including KORU ($24,148,
+100% IRA), META, WMT and QUAL to exactly one — SEVN, $564. AVGO read as a −21.9% loss and is a
++300.9% gain against the broker's basis; META −19.1% is +193%. The taxable sleeve carries
+**$224,308 of embedded gain** on $110,950 of cost, while the redundant index overlap
+(SPYG/QUAL/RSP/IWM/KORU/EWY) sits almost entirely in retirement accounts where unwinding is free.
+
+Also: `weekly_input` now carries `data_as_of` (when positions were priced) separately from
+`generated_at` — the first published page dated itself to build time and so implied hours-old
+holdings when they were six weeks old.
+
+- **Tests**: 250 → **263** (`test_tax.py` covers status/unknown-default, IRA exclusion, the
+  taxable slice of a split holding, threshold, partial/missing basis, BRK/B; three parser
+  column-set assertions updated). `test_weekly_input` now overrides `accounts_dir` too — the tax
+  sections read real exports otherwise, which is the filesystem rule.
+- Same 4 pre-existing failures (test_cost_basis ×3 pandas-3, test_export_schema stale local data).
+- Artifact republished to the same URL with a correction notice naming what was wrong.
+
+## Phase 15 (2026-09-28): Dead money and gain realization
+
+User context: working on a startup, little income expected this year, and a stated belief that
+capital gains cost nothing below ~$50K. That inverts the usual exercise — with $238,817 of
+embedded gain in taxable accounts, the question is which positions to *exit*, not which losses to
+harvest. Plus a standing want: "keep track of my positions and how well they are doing, I know
+SBUX is flat for at least five years."
+
+- **`performance.py`** (new): asks a different question from cost basis. `window_return`,
+  `benchmark_returns`, `position_performance` (1/3/5-yr price return plus excess over SPY **and**
+  over the position's own sector ETF), `laggards` (worst first, `behind_both` when it trails the
+  market *and* its sector, so a weak sector can't be the excuse). `SECTOR_ETF` maps the GICS names
+  enrich.py emits to XL* proxies. SBUX was the prompt: up 71% on cost while returning −4.1% over
+  five years against SPY's +88.5%, and behind even XLY by 28.8 points.
+- **`run_pipeline.py`**: benchmark ETFs get the same 10y history refresh as holdings, but are kept
+  out of `all_symbols` — that list drives the breakout alerts, and benchmarks exist to be measured
+  against, not traded.
+- **`tax.py`**: `holding_term` ('long' when `default_cutoff`, meaning pre-2023, or last BUY over a
+  year old; 'mixed' when a purchase falls inside the year, so a short-term slice can't enter a
+  plan) and `gain_harvest_plan` — ladders long-term taxable positions worst-performer-first to a
+  realized-gain budget, netting losses along the way, and sets `dominated_by` when one holding
+  takes ≥50% of the budget across 3+ sales (AMZN is 72.5% of this one; without it, 14 positions
+  realize $13,645 and free $36,319 instead of $49,648/$81,260).
+- **`weekly_input.py`**: `benchmarks`, `laggards`, `gain_harvest`, `holding_terms` sections;
+  `FIDATA_GAIN_BUDGET` (default $50,000). Prompt gains `## Dead Money` and `## Tax Planning`
+  sections replacing `## Tax-Loss Harvesting`, with instructions to lead on `dominated_by` and to
+  always state that the budget applies to taxable income *including* the gains and that state tax
+  isn't modeled (CA has no preferential rate; there is also no wash-sale rule on gains, so basis
+  on keepers can be reset for free).
+- **Found and flagged, not fixed**: `enrich.ETF_SECTOR_KEYWORDS` matches 'Consumer' → Consumer
+  Discretionary before checking Staples, so XLP is tagged discretionary and compared against XLY.
+  Noted on the page rather than silently reported.
+- **Tests**: 263 → **278** (`test_performance.py`: window-return edges incl. non-positive past,
+  excess vs both benchmarks, the trails-SPY-but-beats-sector case, laggard filters, holding-term
+  boundaries incl. exactly-365-days, budget stop, loss netting, mixed-term exclusion, the
+  ≥3-sales rule for `dominated_by`). `test_weekly_input` now overrides `hist_file` as well.
+- Same 4 pre-existing failures. Artifact republished with both new sections.

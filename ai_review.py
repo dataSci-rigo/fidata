@@ -7,14 +7,11 @@ summary goes to Telegram only; the weekly review gets a short Telegram
 digest plus the full structured text written to disk for panel/fidata_routes.py
 to render.
 """
-import os
 import re
 
-import anthropic
 import pandas as pd
 
-_client = anthropic.Anthropic()
-_MODEL = os.getenv('FIDATA_COACH_MODEL', 'claude-sonnet-4-6')
+import llm
 
 
 class ReviewError(Exception):
@@ -22,14 +19,12 @@ class ReviewError(Exception):
 
 
 def _ask(system: str, user_message: str, max_tokens: int) -> str:
+    """Delegates to llm.ask, which picks Anthropic or OpenRouter from env.
+    The client used to be constructed at import time, so importing this
+    module died without an ANTHROPIC_API_KEY even when the job was routed
+    elsewhere; llm.py builds its client lazily instead."""
     try:
-        response = _client.messages.create(
-            model=_MODEL,
-            max_tokens=max_tokens,
-            system=system,
-            messages=[{'role': 'user', 'content': user_message}],
-        )
-        return response.content[0].text
+        return llm.ask(system, user_message, max_tokens)
     except Exception as e:
         raise ReviewError(str(e)) from e
 

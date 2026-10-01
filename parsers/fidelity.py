@@ -21,13 +21,20 @@ def parse_positions_csv(filepath: str) -> dict[str, pd.DataFrame]:
     df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce')
     df['Current_Price'] = df['Last Price'].apply(clean_num)
     df['Market_Value'] = df['Current Value'].apply(clean_num)
+    # Broker's own total cost for the position (see schwab.py for why).
+    if 'Cost Basis Total' in df.columns:
+        df['Cost_Basis'] = df['Cost Basis Total'].apply(clean_num)
+    elif 'Average Cost Basis' in df.columns:
+        df['Cost_Basis'] = df['Average Cost Basis'].apply(clean_num) * df['Quantity']
+    else:
+        df['Cost_Basis'] = float('nan')
     df = df[pd.to_numeric(df['Account Number'], errors='coerce').notna()]
 
     out: dict[str, pd.DataFrame] = {}
     for raw_acct, grp in df.groupby('Account Number'):
         acct_num = account_key(raw_acct)
         result = (
-            grp[['Symbol', 'Quantity', 'Market_Value', 'Current_Price']]
+            grp[['Symbol', 'Quantity', 'Market_Value', 'Current_Price', 'Cost_Basis']]
             .dropna(subset=['Market_Value'])
             .set_index('Symbol')
             .rename(index=CASH_ALIASES)
@@ -49,9 +56,14 @@ def parse_holdings_xlsx(filepath: str) -> tuple[str, pd.DataFrame]:
     df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce')
     df['Current_Price'] = df['Price'].apply(clean_num)
     df['Market_Value'] = df['Market Value'].apply(clean_num)
+    # This export gives gain rather than cost, so back the cost out of it.
+    if 'Gain/Loss $' in df.columns:
+        df['Cost_Basis'] = df['Market_Value'] - df['Gain/Loss $'].apply(clean_num)
+    else:
+        df['Cost_Basis'] = float('nan')
 
     result = (
-        df[['Security ID', 'Quantity', 'Market_Value', 'Current_Price']]
+        df[['Security ID', 'Quantity', 'Market_Value', 'Current_Price', 'Cost_Basis']]
         .dropna(subset=['Market_Value'])
         .set_index('Security ID')
         .rename(index=CASH_ALIASES)

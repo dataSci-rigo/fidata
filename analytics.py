@@ -38,16 +38,16 @@ def merge_accounts(accounts: dict[str, pd.DataFrame]) -> pd.DataFrame:
         print(price_mismatches.to_string())
         print()
 
-    combined = (
-        equity_rows
-        .groupby('Symbol')
-        .agg(
-            Quantity=('Quantity', 'sum'),
-            Current_Price=('Current_Price', 'mean'),
-            Market_Value=('Market_Value', 'sum'),
-        )
-        .sort_index()
-    )
+    aggs = dict(Quantity=('Quantity', 'sum'),
+                Current_Price=('Current_Price', 'mean'),
+                Market_Value=('Market_Value', 'sum'))
+    # Broker-reported cost, summed across accounts holding the same symbol.
+    # Snapshot frames don't carry it, hence the guard.
+    if 'Cost_Basis' in equity_rows.columns:
+        # min_count=1 so a symbol with no reported basis stays NaN instead of
+        # summing to a misleading 0.0.
+        aggs['Cost_Basis'] = ('Cost_Basis', lambda s: s.sum(min_count=1))
+    combined = equity_rows.groupby('Symbol').agg(**aggs).sort_index()
 
     total_cash = cash_rows['Market_Value'].sum()
     cash_combined = pd.DataFrame(
@@ -63,30 +63,45 @@ def merge_accounts(accounts: dict[str, pd.DataFrame]) -> pd.DataFrame:
 
 # ── Cell 2: cost basis ─────────────────────────────────────────────────────────
 
+def broker_cost_basis(accounts: dict) -> dict[str, float]:
+    """Symbol -> broker-reported average cost per share, pooled across accounts.
+
+    Replaces a loader that matched only Fidelity's 'Average Cost Basis' header
+    and so silently skipped Schwab ('Cost Basis') and E*Trade ('Price Paid $').
+    Roughly a quarter of the book fell through to the 2023 default cutoff as a
+    result, taking its Avg_Buy_Price and every return derived from it with it.
+
+    Pools by total dollars over total shares, so a symbol held in three
+    accounts gets one share-weighted basis rather than whichever file was
+    parsed last.
+    """
+    if not accounts:
+        return {}
+    rows = pd.concat(accounts.values())
+    if 'Cost_Basis' not in rows.columns:
+        return {}
+    rows = rows[rows.index != 'cash']
+    rows = rows[pd.to_numeric(rows['Cost_Basis'], errors='coerce').notna()
+                & (pd.to_numeric(rows['Quantity'], errors='coerce') > 0)]
+    if rows.empty:
+        return {}
+    rows.index.name = 'Symbol'
+    agg = rows.groupby('Symbol').agg(cost=('Cost_Basis', 'sum'),
+                                     qty=('Quantity', 'sum'))
+    agg = agg[agg['qty'] > 0]
+    per_share = (agg['cost'] / agg['qty']).astype(float)
+    out = {str(s): float(v) for s, v in per_share.items() if v > 0}
+    # combined's index is normalized; keep both spellings so either joins.
+    for raw, norm in (('BRK/B', 'BRK-B'), ('BRK-B', 'BRK/B')):
+        if raw in out:
+            out.setdefault(norm, out[raw])
+    return out
+
+
 def load_fallback_cost_basis(accounts_dir: str) -> dict[str, float]:
-    """Symbol -> avg cost per share, read from the brokerage's own 'Average Cost Basis' column."""
-    import io
-    fid_cost: dict[str, float] = {}
-    for fn in sorted(os.listdir(accounts_dir)):
-        if not fn.endswith('.csv'):
-            continue
-        fp = os.path.join(accounts_dir, fn)
-        try:
-            with open(fp, 'r', encoding='utf-8-sig') as f:
-                lines = f.readlines()
-            clean = [l.rstrip(',\n') + '\n' for l in lines]
-            df_cb = pd.read_csv(io.StringIO(''.join(clean)))
-            if 'Average Cost Basis' not in df_cb.columns or 'Symbol' not in df_cb.columns:
-                continue
-            df_cb = df_cb[['Symbol', 'Average Cost Basis']].dropna()
-            for _, r in df_cb.iterrows():
-                sym = str(r['Symbol']).strip()
-                val = clean_num(r['Average Cost Basis'])
-                if sym and not pd.isna(val):
-                    fid_cost[sym] = val
-        except Exception:
-            continue
-    return fid_cost
+    """Backwards-compatible wrapper: parse the exports, then pool their basis."""
+    from parsers import load_positions
+    return broker_cost_basis(load_positions(accounts_dir))
 
 
 def compute_cost_basis(combined: pd.DataFrame, tx_df: pd.DataFrame,

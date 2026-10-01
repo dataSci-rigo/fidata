@@ -27,10 +27,17 @@ def _flush_section(acct: str, lines: list[str]) -> pd.DataFrame | None:
             df['Qty (Quantity)'].astype(str).str.replace(',', '', regex=False),
             errors='coerce')
         mv = df['Mkt Val (Market Value)'].apply(clean_num)
+        # Schwab states the position's TOTAL cost in dollars. Carrying it here
+        # is what lets analytics fall back to the broker's own basis instead of
+        # the 2023 cutoff for anything bought before the transaction history
+        # starts — it was previously read for Fidelity only.
+        cost = (df['Cost Basis'].apply(clean_num) if 'Cost Basis' in df.columns
+                else pd.Series(float('nan'), index=df.index))
         result = pd.DataFrame({
             'Quantity': qty.values,
             'Market_Value': mv.values,
             'Current_Price': (mv / qty).values,
+            'Cost_Basis': cost.values,
         }, index=df['Symbol'].values)
         result.index.name = 'Symbol'
         result = result.dropna(subset=['Market_Value']).rename(index=CASH_ALIASES)

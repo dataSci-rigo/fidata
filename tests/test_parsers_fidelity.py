@@ -22,7 +22,7 @@ def test_parse_positions_csv(fixtures_dir):
     df = accounts['5555']
 
     assert set(df.index) == {'cash', 'FFF', 'GGG'}
-    assert set(df.columns) == {'Quantity', 'Market_Value', 'Current_Price'}
+    assert set(df.columns) == {'Quantity', 'Market_Value', 'Current_Price', 'Cost_Basis'}
     # SPAXX** cash row is aliased to 'cash'
     assert df.loc['cash', 'Market_Value'] == 500.00
     assert df.loc['FFF', 'Quantity'] == 10
